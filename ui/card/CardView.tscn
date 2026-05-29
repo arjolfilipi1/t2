@@ -3,7 +3,6 @@
 [ext_resource type="Script" path="res://ui/card/CardView.gd" id="1_cardview"]
 
 [node name="CardView" type="Control"]
-z_index = 2
 custom_minimum_size = Vector2(100, 150)
 layout_mode = 3
 anchor_right = 0.078
@@ -14,11 +13,15 @@ script = ExtResource("1_cardview")
 
 [node name="Pivot" type="Control" parent="."]
 layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-mouse_filter = 1
+offset_right = -100.0
+offset_bottom = -150.0
+mouse_filter = 2
 
 [node name="BackFace" type="ColorRect" parent="Pivot"]
+layout_mode = 0
 offset_right = 100.0
 offset_bottom = 145.0
 color = Color(0.08, 0.08, 0.2, 1)
@@ -29,6 +32,7 @@ layout_mode = 3
 anchors_preset = 0
 offset_right = 100.0
 offset_bottom = 145.0
+mouse_filter = 2
 
 [node name="Background" type="ColorRect" parent="Pivot/FrontFace"]
 layout_mode = 0
@@ -110,7 +114,6 @@ offset_bottom = 145.0
 mouse_filter = 2
 
 [node name="SelectionBorder" type="Panel" parent="."]
-visible = false
 layout_mode = 0
 offset_left = -2.0
 offset_top = -2.0

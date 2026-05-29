@@ -99,7 +99,7 @@ var _end_btn:       Button
 var _draw_btn:      Button
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
-
+var _tooltip: CardTooltip
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
 	_build_field_background()
@@ -253,7 +253,16 @@ func _build_hud() -> void:
 	# Chain HUD (built inline)
 	_chain_hud = _build_chain_hud()
 	add_child(_chain_hud)
+	const TooltipScene := preload("res://ui/card/CardTooltip.tscn")
+	
 
+	# inside _build_hud():
+	_tooltip = TooltipScene.instantiate()
+	add_child(_tooltip)
+	_tooltip.action_selected.connect(_on_tooltip_action)
+func _on_tooltip_action(action: int, card: CardInstance) -> void:
+	card_clicked.emit(card, null)   # or emit a richer signal with the action
+	# TestBoard / GameDirector reads the action and routes it
 func _make_lp_label(text: String, pos: Vector2) -> Label:
 	var lbl := Label.new()
 	lbl.text     = text
@@ -295,7 +304,8 @@ func get_or_create_card_view(card: CardInstance) -> CardView:
 	
 	if _card_views.has(card.instance_id):
 		return _card_views[card.instance_id]
-	var view := CardViewBuilder.build()
+	const CardViewScene := preload("res://ui/card/CardView.tscn")
+	var view := CardViewScene.instantiate() as CardView
 	view.bind(card)
 	view.card_clicked.connect(_on_card_clicked.bind(card))
 	view.card_inspected.connect(_on_card_inspected.bind(card))
@@ -526,7 +536,21 @@ func _on_triggers_pending(triggers: Array) -> void:
 # ─── Input Handlers ───────────────────────────────────────────────────────────
 
 func _on_card_clicked(view: CardView, card: CardInstance) -> void:
-	card_clicked.emit(card, view)
+	var actions: Array[CardTooltip.Action] = []
+
+	if card.is_in_hand() and card.definition.is_monster():
+		actions.append(CardTooltip.Action.SUMMON)
+		actions.append(CardTooltip.Action.SET)
+	if card.is_in_hand() and not card.definition.is_monster():
+		actions.append(CardTooltip.Action.ACTIVATE)
+		actions.append(CardTooltip.Action.SET)
+	if card.is_on_field() and card.definition.is_monster():
+		actions.append(CardTooltip.Action.ATTACK)
+	if card.is_on_field():
+		actions.append(CardTooltip.Action.ACTIVATE)
+	actions.append(CardTooltip.Action.INSPECT)
+
+	_tooltip.show_for(card, actions, view.global_position, view.size)
 
 func _on_card_inspected(view: CardView, card: CardInstance) -> void:
 	card_inspect_requested.emit(card)
