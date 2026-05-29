@@ -227,7 +227,7 @@ class BanishCost extends EffectCost:
 		chosen_cards.clear()
 
 	func describe() -> String:
-		var src := Source.keys()[from_source].to_lower()
+		var src :String = Source.keys()[from_source].to_lower()
 		return "Banish %d card%s from %s" % [count, "s" if count > 1 else "", src]
 
 

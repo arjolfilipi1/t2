@@ -78,7 +78,7 @@ class OncePerTurnCondition extends EffectCondition:
 
 	func evaluate(source: CardInstance, _zm: ZoneManager, _player: Player) -> bool:
 		var tm = Engine.get_singleton(&"TurnManager") if Engine.has_singleton(&"TurnManager") else null
-		var turn := tm.current_turn if tm != null else 0
+		var turn :int = tm.current_turn if tm != null else 0
 		return not source.was_effect_used_this_turn(effect_index, turn)
 
 	func describe() -> String:

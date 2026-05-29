@@ -103,9 +103,7 @@ var _draw_btn:      Button
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
 	_build_field_background()
-	mouse_exited.connect(on_mouse_enter)
-func on_mouse_enter():
-	print("board exit")
+
 ## Call after _ready() with domain references.
 func setup(zm: ZoneManager, stack: EffectStack, player_list: Array[Player]) -> void:
 	zone_manager = zm
