@@ -67,9 +67,9 @@ var _buttons: Array[Button] = []
 
 # ─── Node refs ────────────────────────────────────────────────────────────────
 
-@onready var _container: HBoxContainer = $Container
+@onready var _container: HBoxContainer = $Panel/Container
 @onready var _panel:     Panel         = $Panel
-@onready var _arrow:     Control       = $Arrow
+@onready var _arrow:     Control       = $Panel/Arrow
 
 # ─── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -104,43 +104,52 @@ func show_for(
 ) -> void:
 	_card = card
 	_clear_buttons()
-
+	
 	for action in actions:
 		var btn := _make_button(action)
 		_container.add_child(btn)
 		_buttons.append(btn)
 
-	# Size the panel to fit buttons
+	# 1. Enforce explicit sizing for container elements cleanly
 	var total_w := actions.size() * BTN_W + (actions.size() - 1) * BTN_GAP + MARGIN * 2
 	var total_h := BTN_H + MARGIN * 2
-	_panel.size       = Vector2(total_w, total_h)
-	_container.size   = _panel.size
-	_arrow.size       = Vector2(total_w, ARROW_H)
+	
+	_panel.size = Vector2(total_w, total_h)
+	_container.size = _panel.size
+	_arrow.size = Vector2(total_w, ARROW_H)
+	
+	# Explicitly match parent layout boundary to content size
+	size = Vector2(total_w, total_h + ARROW_H)
 
-	# Position: centred above the card
-	var tooltip_x := card_global_pos.x + card_size.x / 2.0 - total_w / 2.0
+	# 2. Reset internal offsets to guarantee absolute alignment starting anchors
+	_panel.position = Vector2.ZERO
+	_container.position = Vector2.ZERO
+	_arrow.position = Vector2(0, total_h)
+
+	# 3. Position root coordinate centered above the card targets
+	var tooltip_x := card_global_pos.x + (card_size.x / 2.0) - (total_w / 2.0)
 	var tooltip_y := card_global_pos.y - total_h - ARROW_H - 4.0
 	global_position = Vector2(tooltip_x, tooltip_y)
 
-	# Clamp to viewport
+	# Clamp to safety bounds within viewport layout constraints
 	var vp_size := get_viewport_rect().size
 	global_position.x = clamp(global_position.x, 4, vp_size.x - total_w - 4)
-	global_position.y = clamp(global_position.y, 4, vp_size.y - total_h - 4)
+	global_position.y = clamp(global_position.y, 4, vp_size.y - (total_h + ARROW_H) - 4)
 
-	# Animate in
+	# Animate using relative tracking vectors rather than global mutation traps
 	modulate.a = 0.0
 	show()
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.tween_property(self, "modulate:a", 1.0, ANIM_DUR)
-	tw.parallel().tween_property(self, "position:y", global_position.y, ANIM_DUR) \
+	tw.parallel().tween_property(self, "global_position:y", global_position.y, ANIM_DUR) \
 		.from(global_position.y + 6)
 
 func dismiss() -> void:
 	if not visible:
 		return
 	var tw := create_tween()
-	tw.tween_property(self, "modulate:a", 0.0, ANIM_DUR)
+	#tw.tween_property(self, "modulate:a", 0.0, ANIM_DUR)
 	tw.tween_callback(func():
 		hide()
 		_clear_buttons()
@@ -185,6 +194,7 @@ func _make_button(action: Action) -> Button:
 
 func _clear_buttons() -> void:
 	for btn in _buttons:
+		_container.remove_child(btn)
 		btn.queue_free()
 	_buttons.clear()
 
@@ -209,7 +219,7 @@ func _is_ancestor_of_focused() -> bool:
 func _unhandled_input(event: InputEvent) -> void:
 	if visible and event is InputEventMouseButton and event.pressed:
 		# Convert the mouse position relative to the panel node
-		var local :Vector2= _panel.to_local(get_viewport().get_mouse_position())
+		var local :Vector2= get_viewport().get_mouse_position() - _panel.global_position
 		
 		# Check if the click is outside the panel's boundaries
 		if not Rect2(Vector2.ZERO, _panel.size).has_point(local):

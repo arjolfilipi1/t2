@@ -32,12 +32,10 @@ var p2: Player
 var gd: GameDirector   ## owns zm, stack, tm internally
 
 # ─── Convenience accessors ────────────────────────────────────────────────────
-var zm: ZoneManager:
-	get: return gd.zm
-var stack: EffectStack:  
-	get: return gd.stack
-var tm:    TurnManager:  
-	get: return gd.tm
+
+var zm:    ZoneManager  get: return gd.zm
+var stack: EffectStack  get: return gd.stack
+var tm:    TurnManager  get: return gd.tm
 
 # ─── UI Objects ───────────────────────────────────────────────────────────────
 
@@ -451,7 +449,7 @@ func _run_demo_sequence() -> void:
 	await _demo_step("Cycling through all phases...", func():
 		pass
 	, 0.3)
-	for _i in TurnContext.Phase.size():
+	for _i in PHASES.size():
 		_on_phase_advance()
 		await get_tree().create_timer(0.3).timeout
 
@@ -483,7 +481,7 @@ func _summon_p2_monster() -> void:
 		zm.move_to_first_slot(
 			target, zm.monster_zone_of(p2), ZoneManager.MoveReason.SPECIAL_SUMMON
 		)
-		#target.record_special_summon(_turn, &"effect")
+		target.record_special_summon(_turn, &"effect")
 
 func _apply_test_modifier() -> void:
 	var monsters := zm.monsters_on_field(p1)
