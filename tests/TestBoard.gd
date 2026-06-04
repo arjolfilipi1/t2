@@ -30,7 +30,7 @@ extends Node2D
 var p1: Player
 var p2: Player
 var gd: GameDirector   ## owns zm, stack, tm internally
-
+var ai: AIController   ## controls p2
 # ─── Convenience accessors ────────────────────────────────────────────────────
 var zm: ZoneManager:
 	get: return gd.zm
@@ -68,10 +68,17 @@ func _boot_domain() -> void:
 	add_child(gd)
 	gd.setup([p1, p2])
 
+	## Create AI for p2 with a natural thinking delay
+	ai = AIController.new()
+	ai.think_delay_ms = 500
+	ai.verbose        = true
+	add_child(ai)
+	ai.setup(p2, gd)
+
 func _boot_ui() -> void:
 	board = BoardView.new()
 	add_child(board)
-	board.setup(gd.zm, gd.stack, [p1, p2])
+	board.setup(gd.zm, gd.stack, [p1, p2],gd)
 
 	board.card_clicked.connect(_on_card_clicked)
 	board.empty_zone_clicked.connect(_on_empty_zone_clicked)
@@ -90,6 +97,12 @@ func _boot_ui() -> void:
 	gd.tm.card_drawn.connect(func(player, _card):
 		if player == p1:
 			board.reveal_hand(p1)
+	)
+	gd.tm.card_drawn.connect(func(player,_card):
+		board.refresh_hand(player)
+		if player == p1:
+			board.reveal_hand(p1)
+		
 	)
 	p1.life_points_changed.connect(func(_p, _o, lp): board.update_lp(p1, lp))
 	p2.life_points_changed.connect(func(_p, _o, lp): board.update_lp(p2, lp))
@@ -119,7 +132,8 @@ func _populate_decks() -> void:
 			CardDefinition.Attribute.DARK, "Fiend", CardDefinition.MonsterKind.NORMAL,
 			4, 1300, 1400),
 		_spell_def(&"dark_hole",   "Dark Hole",         CardDefinition.SpellType.NORMAL),
-		_spell_def(&"pot_greed",   "Pot of Greed",      CardDefinition.SpellType.NORMAL),
+		CardLibrary._make_pot_of_greed(),
+		#_spell_def(&"pot_greed",   "Pot of Greed",      CardDefinition.SpellType.NORMAL),
 		_spell_def(&"change_heart","Change of Heart",   CardDefinition.SpellType.NORMAL),
 		_trap_def(&"mirror_force", "Mirror Force",      CardDefinition.TrapType.NORMAL),
 		_trap_def(&"trap_hole",    "Trap Hole",         CardDefinition.TrapType.NORMAL),
@@ -213,6 +227,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	match event.keycode:
+		KEY_B:
+			gd.tm.skip_to_phase(TurnContext.Phase.BATTLE_STEP)
+			print("TestBoard:skipped to battle step")
+		KEY_E:
+			_summon_p2_monster()
 		KEY_D:
 			_on_draw_pressed()
 		KEY_S:
@@ -258,7 +277,7 @@ func _summon_from_hand() -> void:
 
 	if not gd.normal_summon(p1, target):
 		return   ## rejection already printed via action_rejected signal
-
+	target.summoned_on_turn = 0
 	board.refresh_hand(p1)
 	print("TestBoard: Summoned %s" % target.definition.card_name)
 

@@ -427,10 +427,8 @@ func _on_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.pressed:
 			if event.button_index == MOUSE_BUTTON_LEFT:
-				print("left click")
 				card_clicked.emit(self)
 			elif event.button_index == MOUSE_BUTTON_RIGHT:
-				print("right click")
 				card_inspected.emit(self)
 
 # ─── Domain Signal Handlers ───────────────────────────────────────────────────

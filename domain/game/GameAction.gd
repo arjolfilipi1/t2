@@ -237,6 +237,7 @@ class DeclareAttackAction extends GameAction:
 		return RuleEngine.can_attack(attacker, target, player, zm, tm.context)
 
 	func execute(_zm: ZoneManager, tm: TurnManager, stack: EffectStack) -> void:
+		print("attack was executed")
 		# TurnManager drives the battle sub-phases
 		tm.begin_battle_step(attacker, target)
 		# Priority window opened inside begin_battle_step — both players

@@ -134,8 +134,9 @@ func begin_battle_step(attacker: CardInstance, defender: CardInstance) -> void:
 	_current_attacker = attacker
 	_current_defender = defender
 	_enter_phase(TurnContext.Phase.BATTLE_STEP)
+
 	# Open a priority window: both players may respond before damage
-	_stack.open_window(_opponent_of(_active_player()))
+	#_stack.open_window(_opponent_of(_active_player()))
 
 ## Move into the damage step. Called by GameDirector when both players pass
 ## priority after attack declaration.
@@ -195,6 +196,9 @@ func is_turn_player(player: Player) -> bool:
 # ─── Phase Entry ──────────────────────────────────────────────────────────────
 
 func _enter_phase(phase: TurnContext.Phase) -> void:
+	if _stack.state == EffectStack.StackState.OPEN_WINDOW and _stack.chain_is_empty():
+		_stack.state = EffectStack.StackState.IDLE
+		_stack.stack_idle.emit()
 	var old_phase := context.phase if context != null else phase
 	_rebuild_context(phase)
 	phase_changed.emit(old_phase, phase, context)
@@ -286,11 +290,13 @@ func _on_end_phase_start() -> void:
 	_expire_end_of_turn_modifiers(player)
 
 	turn_ending.emit(player)
-
 	# Pass turn after a short yield to let end-phase triggers fire
 	# In a real game GameDirector awaits stack_idle before calling _pass_turn()
 	# Here we call it directly since we have no active triggers yet
-	_pass_turn()
+	if _stack.is_idle():
+		_pass_turn()
+	else:
+		_stack.stack_idle.connect(_pass_turn,CONNECT_ONE_SHOT)
 
 # ─── Turn Passing ─────────────────────────────────────────────────────────────
 

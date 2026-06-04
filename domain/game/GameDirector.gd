@@ -166,6 +166,7 @@ func activate_effect(player: Player, card: CardInstance, effect_index: int,
 
 func declare_attack(player: Player, attacker: CardInstance,
 		target: CardInstance = null) -> bool:
+	print("attack declared by "+attacker.definition.card_name )
 	return submit_action(GameAction.DeclareAttackAction.make(player, attacker, target))
 
 func change_position(player: Player, card: CardInstance,
@@ -267,6 +268,7 @@ func _post_action(action: GameAction) -> void:
 	if action is GameAction.NormalSummonAction:
 		card_summoned.emit(action.card, true)
 	elif action is GameAction.DeclareAttackAction:
+		_try_advance_to_damage_step()
 		# stack is now open (priority window for attack response)
 		pass
 
