@@ -13,6 +13,32 @@ func get_card(id: StringName) -> CardDefinition:
 
 func _register(def: CardDefinition) -> void:
 	db[def.card_id] = def
+func _make_ash_blossom() -> CardDefinition:
+	var d := CardDefinition.new()
+	d.card_id      = &"ash_blossom"
+	d.card_name    = "Ash blossom & Joyous Spring"
+	d.card_type    = CardDefinition.CardType.MONSTER
+	d.attribute    = CardDefinition.Attribute.FIRE
+	d.monster_type = "Zombie"
+	d.monster_kind = CardDefinition.MonsterKind.EFFECT
+	d.level        = 3
+	d.atk          = 0
+	d.def          = 1800
+	d.card_text    = "Its ash."
+	var eff = EffectDefinition.new()
+	eff.effect_name = "Negate Search / Draw / Summon from deck"
+	eff.effect_text = d.card_text
+	eff.spell_speed = 3
+	eff.timing      = EffectDefinition.EffectTiming.QUICK_EFFECT
+	eff.category    = EffectDefinition.EffectCategory.QUICK
+	eff.once_per_turn = true
+	eff.is_continuous = false
+	eff.costs = [EffectCost.DiscardSelfCost.new()]
+	eff.conditions = [EffectCondition.SourceInZoneCondition.in_hand()]
+	var negate := EffectResolutionStep.NegateTopChainLinkStep.new()
+	eff.resolution_steps = [negate]
+	d.effects = [eff]
+	return d
 func _make_dark_magician() -> CardDefinition:
 	var d := CardDefinition.new()
 	d.card_id      = &"dark_magician"

@@ -263,7 +263,7 @@ func _begin_resolution() -> void:
 		link.resolve()
 		_completed_links.append(link)
 		chain_link_resolved.emit(link, link.was_negated())
-
+		_send_to_gy_after_resolution(link)
 	# Collect all completed links in first-pushed order for the signal
 	var ordered := _completed_links.duplicate()
 	_completed_links.clear()
@@ -277,7 +277,22 @@ func _begin_resolution() -> void:
 		stack_idle.emit()
 	# If _pending_triggers is not empty, the next evaluate_triggers call
 	# will handle them (GameDirector drives this loop)
-
+func _send_to_gy_after_resolution(link:ChainLink) -> void:
+	var card = link.source_card
+	var def = card.definition
+	
+	if def.is_monster():
+		return
+	elif def.is_trap():
+		if def.trap_type == CardDefinition.TrapType.CONTINUOUS:
+			return
+	elif def.is_spell():
+		match def.spell_type:
+			CardDefinition.SpellType.CONTINUOUS,CardDefinition.SpellType.EQUIP,CardDefinition.SpellType.FIELD:
+				return
+	if card.is_in_graveyard() or card.is_banished():
+		return
+	_zone_manager.move(card,_zone_manager.graveyard_of(card.controller),ZoneManager.MoveReason.RESOLVE)
 # ─── Spell Speed Validation ───────────────────────────────────────────────────
 
 func _can_push(effect: EffectDefinition, player: Player) -> bool:
@@ -320,7 +335,10 @@ func _pass_priority_to(player: Player) -> void:
 	priority_holder = player
 	priority_passed.emit(player)
 	window_opened.emit(player, true)
-
+	
+	var top := top_link()
+	if top !=null and top.controller == player:
+		call_deferred("pass_priority",player)
 # ─── Trigger Collection ───────────────────────────────────────────────────────
 
 func _collect_triggers_from_card(

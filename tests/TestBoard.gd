@@ -74,7 +74,7 @@ func _boot_domain() -> void:
 	ai.verbose        = true
 	add_child(ai)
 	ai.setup(p2, gd)
-
+	print("AI priority_passed connections:", gd.stack.priority_passed.get_connections())
 func _boot_ui() -> void:
 	board = BoardView.new()
 	add_child(board)
@@ -113,15 +113,13 @@ func _boot_ui() -> void:
 
 func _populate_decks() -> void:
 	## Build two 10-card test decks (no real CardDatabase needed)
-
+	var p2_defs := [CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom()]
 	# P1 deck
 	var p1_defs := [
 		_def(&"dark_magician",     "Dark Magician",     CardDefinition.CardType.MONSTER,
 			CardDefinition.Attribute.DARK, "Spellcaster", CardDefinition.MonsterKind.NORMAL,
-			7, 2500, 2100),
-		_def(&"blue_eyes",         "Blue-Eyes White Dragon", CardDefinition.CardType.MONSTER,
-			CardDefinition.Attribute.LIGHT, "Dragon", CardDefinition.MonsterKind.NORMAL,
-			8, 3000, 2500),
+			4, 2500, 2100),
+
 		_def(&"celtic_guardian",   "Celtic Guardian",   CardDefinition.CardType.MONSTER,
 			CardDefinition.Attribute.EARTH, "Warrior", CardDefinition.MonsterKind.NORMAL,
 			4, 1400, 1200),
@@ -132,6 +130,9 @@ func _populate_decks() -> void:
 			CardDefinition.Attribute.DARK, "Fiend", CardDefinition.MonsterKind.NORMAL,
 			4, 1300, 1400),
 		_spell_def(&"dark_hole",   "Dark Hole",         CardDefinition.SpellType.NORMAL),
+		CardLibrary._make_pot_of_greed(),
+		CardLibrary._make_ash_blossom(),
+		CardLibrary._make_ash_blossom(),
 		CardLibrary._make_pot_of_greed(),
 		#_spell_def(&"pot_greed",   "Pot of Greed",      CardDefinition.SpellType.NORMAL),
 		_spell_def(&"change_heart","Change of Heart",   CardDefinition.SpellType.NORMAL),
@@ -147,7 +148,7 @@ func _populate_decks() -> void:
 
 	# P2 deck (same set, different owner)
 	var p2_cards: Array[CardInstance] = []
-	for def in p1_defs:
+	for def in p2_defs:
 		p2_cards.append(CardFactory.create(def, p2))
 	zm.load_deck(p2_cards, p2)
 	zm.shuffle_deck(p2)
@@ -227,6 +228,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	match event.keycode:
+		KEY_P:
+			print("Stack state:",EffectStack.StackState.keys()[stack.state])
+			print("Chain depth:",stack.depth())
+			print("Priority holder:",stack.priority_holder.display_name if stack.priority_holder else "none")
+			print("stack idle:",stack.is_idle())
 		KEY_B:
 			gd.tm.skip_to_phase(TurnContext.Phase.BATTLE_STEP)
 			print("TestBoard:skipped to battle step")

@@ -93,22 +93,21 @@ func _on_phase_changed(_phase_name: String, _turn: int, active_player: Player) -
 # ─── Priority Window ──────────────────────────────────────────────────────────
 
 func _on_priority_passed(to_player: Player) -> void:
+	print("AI priority passed to",to_player.display_name)
 	if to_player != _player:
 		return
+	
+	if _gd.stack.state == EffectStack.StackState.OPEN_WINDOW:
+		var response := _choose_chain_response(
+			_gd.legal_actions_for(_player)
+		)
+		if response.is_valid():
+			_queue_action(response)
+			_flush_queue()
+		else:
+			_gd.pass_priority(_player)
 	if _thinking:
 		return
-
-	# Check if we have anything to chain
-	var la := _gd.legal_actions_for(_player)
-	if not la.can_activate.is_empty() and not _gd.stack.chain_is_empty():
-		# We might want to chain a quick effect or counter trap
-		var response := _choose_chain_response(la)
-		if response != null:
-			_queue_action(response)
-			return
-
-	# Nothing to chain — pass priority
-	_queue_action(func(): _gd.pass_priority(_player))
 
 # ─── Input Requests ───────────────────────────────────────────────────────────
 
@@ -473,6 +472,7 @@ func _hand_value(card: CardInstance) -> int:
 # ─── Action Queue ─────────────────────────────────────────────────────────────
 
 func _queue_action(action: Callable) -> void:
+	print("appended action ",action)
 	_action_queue.append(action)
 
 func _flush_queue() -> void:
@@ -481,12 +481,15 @@ func _flush_queue() -> void:
 	_execute_next()
 
 func _execute_next() -> void:
+	print("en")
 	if _action_queue.is_empty():
 		return
+	
 	if not _gd.stack.is_idle():
 		_gd.stack.stack_idle.connect(_execute_next,CONNECT_ONE_SHOT)
 	if think_delay_ms <= 0:
 		var action := _action_queue.pop_front()
+		print('executing next:',action)
 		action.call()
 		## Continue immediately (tests / fast-forward mode)
 		_execute_next()
@@ -496,6 +499,7 @@ func _execute_next() -> void:
 			if _action_queue.is_empty():
 				return
 			var action := _action_queue.pop_front()
+			print('executing next2:',action)
 			action.call()
 			_execute_next()
 		)
