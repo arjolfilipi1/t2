@@ -79,7 +79,7 @@ func _boot_ui() -> void:
 	board = BoardView.new()
 	add_child(board)
 	board.setup(gd.zm, gd.stack, [p1, p2],gd)
-
+	print("BoardView effect_stack == gd.stack: ", board.effect_stack == gd.stack)
 	board.card_clicked.connect(_on_card_clicked)
 	board.empty_zone_clicked.connect(_on_empty_zone_clicked)
 	board.phase_advance_requested.connect(_on_phase_advance)

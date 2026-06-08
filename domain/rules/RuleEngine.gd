@@ -416,7 +416,12 @@ static func can_activate_effect(
 				"Spell Speed %d cannot be chained to Spell Speed %d." % [
 					eff.spell_speed, min_speed
 				])
-
+	# Chain condition check — e.g. Ash Blossom only chains to search/draw/SS effects
+	if not eff.chain_condition.is_null() and not stack.chain_is_empty():
+		var top := stack.top_link()
+		if not eff.chain_condition.call(top):
+			return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+				"This effect cannot be chained to that effect.")
 	# ── Once-per-turn ─────────────────────────────────────────────────────────
 	if eff.once_per_turn and card.was_effect_used_this_turn(effect_index, ctx.turn_number):
 		return RuleResult.fail(RuleResult.Reason.ONCE_PER_TURN_USED,

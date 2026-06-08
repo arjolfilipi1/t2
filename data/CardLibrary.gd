@@ -29,6 +29,17 @@ func _make_ash_blossom() -> CardDefinition:
 	eff.effect_name = "Negate Search / Draw / Summon from deck"
 	eff.effect_text = d.card_text
 	eff.spell_speed = 3
+	eff.chain_condition = func(link: ChainLink) -> bool:
+		# Only chain to an effect whose resolution includes
+		# drawing, searching, or special summoning from deck
+		for step in link.effect.resolution_steps:
+			if step is EffectResolutionStep.DrawCardsStep:
+				return true
+			if step is EffectResolutionStep.SearchDeckStep:
+				return true
+			if step is EffectResolutionStep.SpecialSummonTargetStep:
+				return true
+		return false
 	eff.timing      = EffectDefinition.EffectTiming.QUICK_EFFECT
 	eff.category    = EffectDefinition.EffectCategory.QUICK
 	eff.once_per_turn = true
@@ -38,6 +49,7 @@ func _make_ash_blossom() -> CardDefinition:
 	var negate := EffectResolutionStep.NegateTopChainLinkStep.new()
 	eff.resolution_steps = [negate]
 	d.effects = [eff]
+	
 	return d
 func _make_dark_magician() -> CardDefinition:
 	var d := CardDefinition.new()

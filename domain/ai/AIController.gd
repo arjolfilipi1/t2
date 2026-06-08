@@ -92,20 +92,21 @@ func _on_phase_changed(_phase_name: String, _turn: int, active_player: Player) -
 
 # ─── Priority Window ──────────────────────────────────────────────────────────
 
+
 func _on_priority_passed(to_player: Player) -> void:
-	print("AI priority passed to",to_player.display_name)
 	if to_player != _player:
 		return
-	
+
 	if _gd.stack.state == EffectStack.StackState.OPEN_WINDOW:
-		var response := _choose_chain_response(
-			_gd.legal_actions_for(_player)
-		)
+		var la       := _gd.legal_actions_for(_player)
+		var response := _choose_chain_response(la)
 		if response.is_valid():
-			_queue_action(response)
-			_flush_queue()
+			# Execute immediately — no timer, priority is still ours
+			response.call()
 		else:
 			_gd.pass_priority(_player)
+		return
+
 	if _thinking:
 		return
 
@@ -266,6 +267,7 @@ func _score_effect(eff: EffectDefinition) -> int:
 		if step is EffectResolutionStep.ModifyStatStep:           score += 30
 		if step is EffectResolutionStep.GainLifePointsStep:       score += 20
 		if step is EffectResolutionStep.DealDamageStep:           score += 35
+		if step is EffectResolutionStep.NegateTopChainLinkStep:  score += 95
 	return score
 
 func _make_activate_action(card: CardInstance, eff_idx: int) -> Callable:
@@ -481,17 +483,18 @@ func _flush_queue() -> void:
 	_execute_next()
 
 func _execute_next() -> void:
-	print("en")
 	if _action_queue.is_empty():
 		return
-	
+
+	# Wait for chain to resolve before executing the next action
 	if not _gd.stack.is_idle():
-		_gd.stack.stack_idle.connect(_execute_next,CONNECT_ONE_SHOT)
+		if not _gd.stack.stack_idle.is_connected(_execute_next):
+			_gd.stack.stack_idle.connect(_execute_next, CONNECT_ONE_SHOT)
+		return   # ← this was missing — was falling through to the timer
+
 	if think_delay_ms <= 0:
 		var action := _action_queue.pop_front()
-		print('executing next:',action)
 		action.call()
-		## Continue immediately (tests / fast-forward mode)
 		_execute_next()
 	else:
 		var timer := get_tree().create_timer(think_delay_ms / 1000.0)
@@ -499,7 +502,6 @@ func _execute_next() -> void:
 			if _action_queue.is_empty():
 				return
 			var action := _action_queue.pop_front()
-			print('executing next2:',action)
 			action.call()
 			_execute_next()
 		)

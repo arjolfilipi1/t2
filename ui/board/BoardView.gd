@@ -28,7 +28,7 @@ extends Control
 
 ## Player clicked a card (intent determined by current game state).
 signal card_clicked(card: CardInstance, view: CardView)
-
+signal pass_priority_requested()
 ## Player clicked an empty monster zone slot.
 signal empty_zone_clicked(zone: Zone, slot: int)
 
@@ -104,7 +104,7 @@ var _card_views: Dictionary = {}   ## int → CardView
 var _selected_view: CardView = null
 
 # ─── HUD Nodes ────────────────────────────────────────────────────────────────
-
+var _pass_btn: Button
 var _phase_label:   Label
 var _turn_label:    Label
 var _p1_lp_label:  Label
@@ -276,7 +276,14 @@ func _build_hud() -> void:
 	_chain_hud = _build_chain_hud()
 	add_child(_chain_hud)
 	const TooltipScene := preload("res://ui/card/CardTooltip.tscn")
-	
+	_pass_btn          = Button.new()
+	_pass_btn.name     = "PassBtn"
+	_pass_btn.text     = "PASS"
+	_pass_btn.position = Vector2(VIEWPORT_W - 350, HUD_Y)
+	_pass_btn.size     = Vector2(70, 30)
+	_pass_btn.add_theme_font_size_override("font_size", 10)
+	_pass_btn.pressed.connect(func(): pass_priority_requested.emit())
+	add_child(_pass_btn)
 
 	# inside _build_hud():
 	_tooltip = TooltipScene.instantiate()
@@ -542,10 +549,15 @@ func _on_chain_link_resolved(link: ChainLink, was_negated: bool) -> void:
 func _on_chain_resolved(_links: Array) -> void:
 	update_chain_hud([])
 	clear_all_glows()
-
+	_pass_btn.visible = false
 func _on_priority_passed(to_player: Player) -> void:
+	print("BoardView: priority_passed to ", to_player.display_name,
+		" local=", players[0].display_name)
 	_turn_label.modulate = Color(1.0, 0.9, 0.3) if to_player == players[0] else Color(0.9, 0.4, 0.4)
-
+	# Show pass button only when local player holds priority on open chain
+	#_pass_btn.visible = (to_player == players[0] and not effect_stack.chain_is_empty())
+	_pass_btn.visible = (to_player == players[0] )
+	print("btn is ",_pass_btn.visible)
 func _on_triggers_pending(triggers: Array) -> void:
 	## In a full game, show a popup. For now, auto-decline all optional triggers.
 	var choices := {}
