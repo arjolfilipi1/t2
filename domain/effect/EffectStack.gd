@@ -230,7 +230,8 @@ func minimum_spell_speed() -> int:
 ## asks players about optional ones.
 func evaluate_triggers(event: GameEvent, zone_manager: ZoneManager) -> void:
 	var new_triggers: Array[PendingTrigger] = []
-
+	if state == StackState.RESOLVING:
+		return
 	# Scan all on-field cards for matching trigger effects
 	for player in players:
 		for card in zone_manager.all_cards_on_field(player):
@@ -274,8 +275,8 @@ func _begin_resolution() -> void:
 
 	# Check for triggers that fired during resolution
 	state = StackState.IDLE
-	if _pending_triggers.is_empty():
-		stack_idle.emit()
+	#if _pending_triggers.is_empty():
+	stack_idle.emit()
 	# If _pending_triggers is not empty, the next evaluate_triggers call
 	# will handle them (GameDirector drives this loop)
 func _send_to_gy_after_resolution(link:ChainLink) -> void:
@@ -333,7 +334,6 @@ func _can_push(effect: EffectDefinition, player: Player) -> bool:
 # ─── Priority Passing ─────────────────────────────────────────────────────────
 
 func _pass_priority_to(player: Player) -> void:
-	print("_pass_priority_to: ", player.display_name, " stack: ", get_stack())
 	priority_holder = player
 	priority_passed.emit(player)
 	window_opened.emit(player, true)

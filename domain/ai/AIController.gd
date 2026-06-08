@@ -96,10 +96,14 @@ func _on_phase_changed(_phase_name: String, _turn: int, active_player: Player) -
 func _on_priority_passed(to_player: Player) -> void:
 	if to_player != _player:
 		return
-
+	
 	if _gd.stack.state == EffectStack.StackState.OPEN_WINDOW:
 		var la       := _gd.legal_actions_for(_player)
 		var response := _choose_chain_response(la)
+		print("AI priority window — chain depth: ", _gd.stack.depth(),
+	" can_activate: ", la.can_activate.size(),
+	" response valid: ", response.is_valid(),
+	" state: ", EffectStack.StackState.keys()[_gd.stack.state])
 		if response.is_valid():
 			# Execute immediately — no timer, priority is still ours
 			response.call()
@@ -223,9 +227,14 @@ func _plan_battle_phase() -> void:
 # ─── Chain Response ───────────────────────────────────────────────────────────
 
 func _choose_chain_response(la: LegalActions) -> Callable:
-	## Only respond with counter traps (Spell Speed 3) or quick effects (SS2)
-	## that are still legal on the current chain.
+	# Cards already on the chain cannot activate again
+	var cards_on_chain: Array = _gd.stack.links.map(
+		func(l: ChainLink) -> CardInstance: return l.source_card
+	)
+
 	for card in la.can_activate.keys():
+		if card in cards_on_chain:
+			continue
 		var effects: Array = la.activatable_effects_for(card)
 		for eff_idx in effects:
 			var eff: EffectDefinition = card.definition.effects[eff_idx]
