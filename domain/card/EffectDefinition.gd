@@ -55,10 +55,12 @@ enum EffectCategory {
 
 ## Once per turn? Tracked at runtime via CardInstance.used_effects
 @export var once_per_turn: bool = true
+@export var once_per_turn_per_player: bool = true
+@export var once_per_duel_per_player: bool = true
 
 ## Once per duel?
 @export var once_per_duel: bool = false
-
+var chain_condition: Callable = Callable()
 # ─── Costs ────────────────────────────────────────────────────────────────────
 ## Paid before the effect goes on the chain. Non-optional once activation starts.
 ## Typed as Array because EffectCost inner classes can't be used in typed arrays.

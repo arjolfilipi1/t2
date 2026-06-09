@@ -84,7 +84,7 @@ func _boot_ui() -> void:
 	board.empty_zone_clicked.connect(_on_empty_zone_clicked)
 	board.phase_advance_requested.connect(_on_phase_advance)
 	board.draw_requested.connect(_on_draw_pressed)
-
+	board.pass_priority_requested.connect(func(): gd.pass_priority(p1))
 	# Wire GameDirector signals to HUD
 	gd.phase_changed.connect(func(_name, _turn, _player): _update_hud())
 	gd.active_player_changed.connect(func(_p): _update_hud())
@@ -113,7 +113,9 @@ func _boot_ui() -> void:
 
 func _populate_decks() -> void:
 	## Build two 10-card test decks (no real CardDatabase needed)
-	var p2_defs := [CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom()]
+	var p2_defs := [CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),_def(&"dark_magician",     "Dark Magician",     CardDefinition.CardType.MONSTER,
+			CardDefinition.Attribute.DARK, "Spellcaster", CardDefinition.MonsterKind.NORMAL,
+			4, 2500, 2100),]
 	# P1 deck
 	var p1_defs := [
 		_def(&"dark_magician",     "Dark Magician",     CardDefinition.CardType.MONSTER,
@@ -228,11 +230,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	match event.keycode:
+		KEY_C:
+			print("c:",stack.priority_holder.display_name)
 		KEY_P:
-			print("Stack state:",EffectStack.StackState.keys()[stack.state])
-			print("Chain depth:",stack.depth())
-			print("Priority holder:",stack.priority_holder.display_name if stack.priority_holder else "none")
-			print("stack idle:",stack.is_idle())
+			print("p",stack.priority_holder.display_name)
+			if stack.priority_holder == p1:
+				#board.pass_priority_requested.emit()
+				gd.pass_priority(p1)
+				print("you pass")
+			else:
+				print("not your prio")
+
 		KEY_B:
 			gd.tm.skip_to_phase(TurnContext.Phase.BATTLE_STEP)
 			print("TestBoard:skipped to battle step")

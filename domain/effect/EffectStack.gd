@@ -70,7 +70,7 @@ enum StackState {
 
 ## The live chain. Index 0 = first pushed (resolves last). Last = top (resolves next).
 var links: Array[ChainLink] = []
-
+var _human_players:Array[Player]
 ## Current machine state.
 var state: StackState = StackState.IDLE
 
@@ -102,7 +102,7 @@ func setup(player_list: Array[Player], zone_manager: ZoneManager) -> void:
 	_zone_manager = zone_manager
 	turn_player   = players[0]
 	priority_holder = players[0]
-
+	_human_players  = [players[0]]   # ← add this line
 	# Hook into ZoneManager to detect triggers on card movement
 	_zone_manager.card_moved.connect(_on_card_moved)
 
@@ -139,6 +139,7 @@ func push(
 	# ── Mark once-per-turn usage ───────────────────────────────────────────────
 
 	if effect.once_per_turn:
+		print("effect registered for turn ",_current_turn())
 		card.mark_effect_used(card.definition.effects.find(effect), _current_turn())
 	if effect.once_per_duel:
 		card.mark_effect_used_duel(card.definition.effects.find(effect))
@@ -153,6 +154,7 @@ func push(
 ## The current priority holder passes without activating anything.
 ## When both players pass consecutively, resolution begins.
 func pass_priority(player: Player) -> void:
+	print("pass_priority: ", player.display_name, " pasees: ", _consecutive_passes)
 	assert(state == StackState.OPEN_WINDOW, "Cannot pass priority in state: %s" % StackState.keys()[state])
 	assert(player == priority_holder, "Player %d does not hold priority" % player.player_id)
 
@@ -229,7 +231,8 @@ func minimum_spell_speed() -> int:
 ## asks players about optional ones.
 func evaluate_triggers(event: GameEvent, zone_manager: ZoneManager) -> void:
 	var new_triggers: Array[PendingTrigger] = []
-
+	if state == StackState.RESOLVING:
+		return
 	# Scan all on-field cards for matching trigger effects
 	for player in players:
 		for card in zone_manager.all_cards_on_field(player):
@@ -273,8 +276,8 @@ func _begin_resolution() -> void:
 
 	# Check for triggers that fired during resolution
 	state = StackState.IDLE
-	if _pending_triggers.is_empty():
-		stack_idle.emit()
+	#if _pending_triggers.is_empty():
+	stack_idle.emit()
 	# If _pending_triggers is not empty, the next evaluate_triggers call
 	# will handle them (GameDirector drives this loop)
 func _send_to_gy_after_resolution(link:ChainLink) -> void:
@@ -332,13 +335,16 @@ func _can_push(effect: EffectDefinition, player: Player) -> bool:
 # ─── Priority Passing ─────────────────────────────────────────────────────────
 
 func _pass_priority_to(player: Player) -> void:
+	print("passed prio to ",player.display_name)
 	priority_holder = player
 	priority_passed.emit(player)
 	window_opened.emit(player, true)
-	
-	var top := top_link()
-	if top !=null and top.controller == player:
-		call_deferred("pass_priority",player)
+
+	# Only auto-pass if this player STILL holds priority after the signal.
+	# The signal handler may have activated an effect which transferred
+	# priority to the opponent inside push().
+	#if player not in _human_players and priority_holder == player:
+		#pass_priority(player)
 # ─── Trigger Collection ───────────────────────────────────────────────────────
 
 func _collect_triggers_from_card(

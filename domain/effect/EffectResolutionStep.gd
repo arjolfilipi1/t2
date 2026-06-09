@@ -16,6 +16,7 @@ extends Resource
 # ─── Service Locator ──────────────────────────────────────────────────────────
 ## Set once at game boot by GameDirector or TestBoard.
 static var zone_manager: ZoneManager = null
+static var effect_stack: EffectStack = null
 static var players: Array = []         ## Array[Player]
 
 ## Convenience accessor with null-check.
@@ -23,7 +24,9 @@ static func zm() -> ZoneManager:
 	assert(zone_manager != null,
 		"EffectResolutionStep.zone_manager is null — call EffectResolutionStep.zone_manager = zm at boot")
 	return zone_manager
-
+static func stack() -> EffectStack:
+	assert(effect_stack != null,"EffectResolutionStep.effect_stack is null")
+	return effect_stack
 ## Returns all players except the given one.
 static func opponents_of(player: Player) -> Array:
 	var result := []
@@ -143,7 +146,30 @@ class ReturnToHandStep extends EffectResolutionStep:
 		for card in context.valid_targets():
 			z.move(card, z.hand_of(card.controller), ZoneManager.MoveReason.EFFECT_RETURN)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SPECIAL SUMMON FROM DECK
+# ══════════════════════════════════════════════════════════════════════════════
 
+class SpecialSummonFromDeckTargetStep extends EffectResolutionStep:
+	## Special summons targets from GY / banished / hand to the field.
+	@export var method: StringName = &"effect"
+
+	func execute(context: EffectContext) -> void:
+		var z    := EffectResolutionStep.zm()
+		var turn := 0
+		if Engine.has_singleton(&"TurnManager"):
+			turn = Engine.get_singleton(&"TurnManager").current_turn
+		for card in context.targets:
+			if card.is_in_deck()== false:
+				continue
+			if not z.has_open_monster_zone(card.controller):
+				push_warning("SpecialSummonTargetStep: no open zone for %s" % card)
+				continue
+			z.move_to_first_slot(
+				card, z.monster_zone_of(card.controller),
+				ZoneManager.MoveReason.SPECIAL_SUMMON
+			)
+			card.record_special_summon(turn, method)
 # ══════════════════════════════════════════════════════════════════════════════
 # SPECIAL SUMMON
 # ══════════════════════════════════════════════════════════════════════════════
@@ -280,10 +306,7 @@ class NegateTopChainLinkStep extends EffectResolutionStep:
 	## Used by counter traps (Solemn Judgment, etc.).
 	## Negates the link directly below this one on the chain.
 	func execute(context: EffectContext) -> void:
-		if not Engine.has_singleton(&"EffectStack"):
-			push_warning("NegateTopChainLinkStep: EffectStack singleton not registered")
-			return
-		var stack: EffectStack = Engine.get_singleton(&"EffectStack")
+		var stack: EffectStack = EffectResolutionStep.stack()
 		var target_index := context.chain_index - 1
 		if target_index >= 1:
 			stack.negate_link(target_index, context.source_card)

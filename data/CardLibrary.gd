@@ -36,6 +36,15 @@ func _make_ash_blossom() -> CardDefinition:
 	eff.costs = [EffectCost.DiscardSelfCost.new()]
 	eff.conditions = [EffectCondition.SourceInZoneCondition.in_hand()]
 	var negate := EffectResolutionStep.NegateTopChainLinkStep.new()
+	eff.chain_condition = func(link:ChainLink)->bool:
+		for step in link.effect.resolution_steps:
+			if step is EffectResolutionStep.DrawCardsStep:
+				return true
+			if step is EffectResolutionStep.SearchDeckStep:
+				return true
+			if step is EffectResolutionStep.SpecialSummonFromDeckTargetStep:
+				return true
+		return false
 	eff.resolution_steps = [negate]
 	d.effects = [eff]
 	return d

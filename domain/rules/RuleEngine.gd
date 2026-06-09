@@ -416,7 +416,17 @@ static func can_activate_effect(
 				"Spell Speed %d cannot be chained to Spell Speed %d." % [
 					eff.spell_speed, min_speed
 				])
-
+	# Chain condition check — e.g. Ash Blossom only chains to search/draw/SS effects
+	if not eff.chain_condition.is_null() and not stack.chain_is_empty():
+		var top := stack.top_link()
+		if not eff.chain_condition.call(top):
+			return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+				"This effect cannot be chained to that effect.")
+	# ── Once-per-turn-per-player ──────────────────────────────────────────────
+	if eff.once_per_turn_per_player:
+		if false:
+			return RuleResult.fail(RuleResult.Reason.ONCE_PER_TURN_USED,
+			"%s's effect can only be used once per turn per name." % card.definition.card_name)
 	# ── Once-per-turn ─────────────────────────────────────────────────────────
 	if eff.once_per_turn and card.was_effect_used_this_turn(effect_index, ctx.turn_number):
 		return RuleResult.fail(RuleResult.Reason.ONCE_PER_TURN_USED,
@@ -550,12 +560,14 @@ static func get_all_legal_actions(
 	var la := LegalActions.new()
 
 	# Summoning and setting — from hand
-	for card in zm.hand_of(player).get_cards():
+	for card:CardInstance in zm.hand_of(player).get_cards():
 		if can_normal_summon(card, player, zm, ctx).valid:
 			la.can_normal_summon.append(card)
 		if can_set(card, player, zm, ctx).valid:
 			la.can_set.append(card)
 		var activatable := get_activatable_effects(card, player, zm, ctx, stack)
+		if card.definition.card_name == "Ash blossom & Joyous Spring":
+			print("ash is ",activatable)
 		if not activatable.is_empty():
 			la.can_activate[card] = activatable
 

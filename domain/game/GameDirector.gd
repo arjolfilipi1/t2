@@ -68,7 +68,7 @@ var local_player: Player = null
 ## Every executed action in order. Used for replay and debug.
 var action_log: Array[GameAction] = []
 var _next_action_id: int = 0
-
+var player_used_effects:Dictionary = {}# player -> {card_id - effect_index - turn}
 # ─── Pending Input ────────────────────────────────────────────────────────────
 
 ## Set when GameDirector is waiting for the player to make a UI decision.
@@ -94,9 +94,11 @@ func setup(player_list: Array[Player]) -> void:
 	zm.setup(players)
 	stack.setup(players, zm)
 	tm.setup(players, zm, stack)
+	tm.turn_started.connect(_on_turn_started)
 
 	# Register service locator for EffectResolutionStep
 	EffectResolutionStep.zone_manager = zm
+	EffectResolutionStep.effect_stack = stack
 	EffectResolutionStep.players      = players
 
 	# Wire internal signals
@@ -106,6 +108,9 @@ func setup(player_list: Array[Player]) -> void:
 	tm.card_drawn.connect(_on_card_drawn)
 	stack.stack_idle.connect(_on_stack_idle)
 	stack.triggers_pending.connect(_on_triggers_pending)
+
+func _on_turn_started(turn:int,_player:Player)->void:
+	stack.set_meta("current_turn",turn)
 
 ## Begin the game. Call after all decks are loaded.
 func start_game() -> void:
@@ -174,7 +179,7 @@ func change_position(player: Player, card: CardInstance,
 	return submit_action(GameAction.ChangeBattlePositionAction.make(player, card, new_pos))
 
 func pass_priority(player: Player) -> bool:
-	print("Priority passed to ",player.display_name)
+	print("pass_priority: ", player.display_name, " stack: ", get_stack())
 	return submit_action(GameAction.PassPriorityAction.make(player))
 
 func advance_phase(player: Player) -> bool:
@@ -311,7 +316,15 @@ func _on_triggers_pending(triggers: Array) -> void:
 		stack.confirm_optional_triggers(choices)
 	)
 	request_input(req)
+func mark_player_effect_used(player:Player, card_id:StringName,effect_index:int,turn:int) ->void:
+	if not player_used_effects.has(player):
+		player_used_effects[player] = {}
+	if not player_used_effects[player].has(card_id):
+		player_used_effects[player][card_id]= {}
+	player_used_effects[player][card_id][effect_index]= turn
 
+func was_player_effect_used_this_turn(player:Player, card_id:StringName,effect_index:int,turn:int) ->bool:
+	return player_used_effects.get(player,{}).get(card_id,{}).get(effect_index,-1) == turn
 # ─── Debug ────────────────────────────────────────────────────────────────────
 
 func debug_state() -> void:
