@@ -68,7 +68,6 @@ var local_player: Player = null
 ## Every executed action in order. Used for replay and debug.
 var action_log: Array[GameAction] = []
 var _next_action_id: int = 0
-var player_used_effects:Dictionary = {}# player -> {card_id - effect_index - turn}
 # ─── Pending Input ────────────────────────────────────────────────────────────
 
 ## Set when GameDirector is waiting for the player to make a UI decision.
@@ -316,15 +315,7 @@ func _on_triggers_pending(triggers: Array) -> void:
 		stack.confirm_optional_triggers(choices)
 	)
 	request_input(req)
-func mark_player_effect_used(player:Player, card_id:StringName,effect_index:int,turn:int) ->void:
-	if not player_used_effects.has(player):
-		player_used_effects[player] = {}
-	if not player_used_effects[player].has(card_id):
-		player_used_effects[player][card_id]= {}
-	player_used_effects[player][card_id][effect_index]= turn
 
-func was_player_effect_used_this_turn(player:Player, card_id:StringName,effect_index:int,turn:int) ->bool:
-	return player_used_effects.get(player,{}).get(card_id,{}).get(effect_index,-1) == turn
 # ─── Debug ────────────────────────────────────────────────────────────────────
 
 func debug_state() -> void:

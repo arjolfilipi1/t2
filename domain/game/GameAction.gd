@@ -202,7 +202,7 @@ class ActivateEffectAction extends GameAction:
 			card.face_state = CardInstance.FaceState.FACE_UP
 
 		# Push onto chain
-		stack.push(eff, card, player, targets)
+		stack.push(eff, card, effect_index,player, targets)
 
 	func describe() -> String:
 		var eff_name := ""

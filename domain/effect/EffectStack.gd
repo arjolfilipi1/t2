@@ -25,7 +25,7 @@
 ##
 class_name EffectStack
 extends Node
-
+var player_used_effects:Dictionary = {}# player -> {card_id - effect_index - turn}
 # ─── Signals ──────────────────────────────────────────────────────────────────
 
 ## A new ChainLink was added (UI: add entry to chain display).
@@ -114,6 +114,7 @@ func setup(player_list: Array[Player], zone_manager: ZoneManager) -> void:
 func push(
 	effect: EffectDefinition,
 	card: CardInstance,
+	effect_index:int,
 	activating_player: Player,
 	targets: Array[CardInstance] = [],
 	trigger_event: GameEvent = null
@@ -143,7 +144,10 @@ func push(
 		card.mark_effect_used(card.definition.effects.find(effect), _current_turn())
 	if effect.once_per_duel:
 		card.mark_effect_used_duel(card.definition.effects.find(effect))
-
+	if effect.once_per_turn_per_player:
+		if was_player_effect_used_this_turn(activating_player,card.definition.card_id,effect_index,_current_turn()):
+			push_warning("Player has already used effect of card % this turn" % card.definition.card_name)
+		mark_player_effect_used(activating_player,card.definition.card_id,effect_index,_current_turn())
 	# ── Pass priority to the opponent ─────────────────────────────────────────
 
 	var opponent := _opponent_of(activating_player)
@@ -224,7 +228,15 @@ func minimum_spell_speed() -> int:
 	return top_link().effect.spell_speed
 
 # ─── Trigger Evaluation ───────────────────────────────────────────────────────
+func mark_player_effect_used(player:Player, card_id:StringName,effect_index:int,turn:int) ->void:
+	if not player_used_effects.has(player):
+		player_used_effects[player] = {}
+	if not player_used_effects[player].has(card_id):
+		player_used_effects[player][card_id]= {}
+	player_used_effects[player][card_id][effect_index]= turn
 
+func was_player_effect_used_this_turn(player:Player, card_id:StringName,effect_index:int,turn:int) ->bool:
+	return player_used_effects.get(player,{}).get(card_id,{}).get(effect_index,-1) == turn
 ## Called by GameDirector after any game event that might trigger effects.
 ## Collects all matching trigger effects from all cards currently on the field,
 ## respects SEGOC ordering, and either auto-places mandatory ones or
@@ -461,7 +473,7 @@ func _process_pending_triggers(
 	for pt in triggers:
 		if pt.is_mandatory:
 			# Auto-push mandatory effects — no player choice
-			push(pt.effect, pt.source_card, pt.controller, pt.targets, pt.trigger_event)
+			push(pt.effect, pt.source_card,pt.effect_index, pt.controller, pt.targets, pt.trigger_event)
 			pt.is_handled = true
 		else:
 			optional_triggers.append(pt)

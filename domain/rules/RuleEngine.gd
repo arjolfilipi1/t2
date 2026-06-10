@@ -387,7 +387,8 @@ static func can_activate_effect(
 	ctx:          TurnContext,
 	stack:        EffectStack
 ) -> RuleResult:
-
+	print("\n Checking activation for:",card.definition.card_name,":",effect_index)
+	
 	# ── Basic guards ──────────────────────────────────────────────────────────
 	if card.definition.effects.is_empty():
 		return RuleResult.fail(RuleResult.Reason.NO_EFFECTS)
@@ -405,6 +406,7 @@ static func can_activate_effect(
 
 	# ── Priority ──────────────────────────────────────────────────────────────
 	if stack.priority_holder != player:
+		print("not your prio")
 		return RuleResult.fail(RuleResult.Reason.NOT_YOUR_PRIORITY,
 			"You don't hold priority.")
 
@@ -412,6 +414,7 @@ static func can_activate_effect(
 	if not stack.chain_is_empty():
 		var min_speed := stack.minimum_spell_speed()
 		if eff.spell_speed < min_speed:
+			print("spell speed too low")
 			return RuleResult.fail(RuleResult.Reason.SPELL_SPEED_TOO_LOW,
 				"Spell Speed %d cannot be chained to Spell Speed %d." % [
 					eff.spell_speed, min_speed
@@ -420,25 +423,30 @@ static func can_activate_effect(
 	if not eff.chain_condition.is_null() and not stack.chain_is_empty():
 		var top := stack.top_link()
 		if not eff.chain_condition.call(top):
+			print("conditions not met")
 			return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
 				"This effect cannot be chained to that effect.")
 	# ── Once-per-turn-per-player ──────────────────────────────────────────────
 	if eff.once_per_turn_per_player:
-		if false:
+		if stack.was_player_effect_used_this_turn(player,card.definition.card_id,effect_index,ctx.turn_number):
+			print("opt")
 			return RuleResult.fail(RuleResult.Reason.ONCE_PER_TURN_USED,
 			"%s's effect can only be used once per turn per name." % card.definition.card_name)
 	# ── Once-per-turn ─────────────────────────────────────────────────────────
 	if eff.once_per_turn and card.was_effect_used_this_turn(effect_index, ctx.turn_number):
+		print("opt per card")
 		return RuleResult.fail(RuleResult.Reason.ONCE_PER_TURN_USED,
 			"%s's effect can only be used once per turn." % card.definition.card_name)
 
 	if eff.once_per_duel and card.was_effect_used_this_duel(effect_index):
+		print("opd per card")
 		return RuleResult.fail(RuleResult.Reason.ONCE_PER_DUEL_USED,
 			"%s's effect can only be used once per duel." % card.definition.card_name)
 
 	# ── Phase / timing ────────────────────────────────────────────────────────
 	var timing_result := _check_timing(eff, card, player, ctx, stack)
 	if not timing_result.valid:
+		print("no valid timing")
 		return timing_result
 
 	# ── Conditions ────────────────────────────────────────────────────────────

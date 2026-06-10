@@ -254,16 +254,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_activatable()
 		KEY_T:
 			_toggle_targetable()
-		KEY_C:
-			_demo_chain()
+
 		KEY_F:
 			_set_spell_from_hand()
 		KEY_X:
 			_destroy_first_p1_monster()
 		KEY_TAB:
 			_on_phase_advance()
-		KEY_SPACE:
-			_run_demo_sequence()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Game Actions
@@ -349,51 +347,6 @@ func _toggle_targetable() -> void:
 		board.clear_all_glows()
 		print("TestBoard: Highlights cleared")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Chain Demo
-# ──────────────────────────────────────────────────────────────────────────────
-
-func _demo_chain() -> void:
-	## Build a 2-link chain with mock effects, then resolve it
-	var card_a := _first_on_field(p1)
-	var card_b := _first_on_field(p2)
-
-	if card_a == null or card_b == null:
-		print("TestBoard: Need at least 1 monster per side for chain demo (press S first)")
-		return
-
-	## Make two throwaway EffectDefinitions
-	var eff_a := EffectDefinition.new()
-	eff_a.effect_name  = "Spell Speed 1 Effect"
-	eff_a.spell_speed  = 1
-	eff_a.once_per_turn = false
-	eff_a.is_continuous = false
-	card_a.definition.effects = [eff_a]
-
-	var eff_b := EffectDefinition.new()
-	eff_b.effect_name  = "Quick Effect Response"
-	eff_b.spell_speed  = 2
-	eff_b.once_per_turn = false
-	eff_b.is_continuous = false
-	card_b.definition.effects = [eff_b]
-
-	print("\nTestBoard: ── Chain Demo ──")
-	print("  P1 activates CL1: '%s'" % eff_a.effect_name)
-	stack.push(eff_a, card_a, p1)
-	stack.debug_print_chain()
-
-	print("  P2 chains CL2: '%s'" % eff_b.effect_name)
-	stack.push(eff_b, card_b, p2)
-	stack.debug_print_chain()
-
-	print("  P1 passes priority")
-	stack.pass_priority(p1)
-
-	print("  P2 passes priority → resolution")
-	stack.pass_priority(p2)
-
-	print("  Chain resolved. Stack idle: %s" % stack.is_idle())
-	print("  CL2 resolved first, then CL1 (LIFO)")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Phase Advance
@@ -419,82 +372,6 @@ func _on_card_clicked(card: CardInstance, _view: CardView) -> void:
 func _on_empty_zone_clicked(zone: Zone, slot: int) -> void:
 	print("TestBoard: Clicked empty zone %s slot %d" % [zone.zone_id, slot])
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Automated Demo Sequence (SPACE)
-## Runs a scripted sequence to exercise all major systems visually.
-# ──────────────────────────────────────────────────────────────────────────────
-
-func _run_demo_sequence() -> void:
-	if _demo_running:
-		return
-	_demo_running = true
-	print("\nTestBoard: ══ Running Full Demo Sequence ══")
-
-	## Step 1: Summon a monster for each player
-	await _demo_step("Summoning P1 first monster...", func():
-		_summon_from_hand()
-	, 0.8)
-
-	## Step 2: Summon P2 monster directly (bypassing hand for demo)
-	await _demo_step("Placing P2 monster on field...", func():
-		_summon_p2_monster()
-	, 0.8)
-
-	## Step 3: Activatable highlight
-	await _demo_step("Showing activatable glows on P1 field...", func():
-		var cards := zm.all_cards_on_field(p1)
-		board.highlight_activatable(cards)
-	, 1.2)
-
-	## Step 4: Clear, show targetable
-	await _demo_step("Showing targetable glows on P2 field...", func():
-		board.clear_all_glows()
-		var cards := zm.all_cards_on_field(p2)
-		board.highlight_targetable(cards)
-	, 1.2)
-
-	## Step 5: Clear, run chain demo
-	await _demo_step("Clearing glows, running 2-link chain...", func():
-		board.clear_all_glows()
-		_demo_chain()
-	, 1.5)
-
-	## Step 6: Set a spell/trap
-	await _demo_step("Setting a spell/trap face-down...", func():
-		_set_spell_from_hand()
-	, 0.8)
-
-	## Step 7: Destroy P1 monster → GY
-	await _demo_step("Destroying P1 monster (battle)...", func():
-		_destroy_first_p1_monster()
-	, 0.8)
-
-	## Step 8: Draw two cards
-	await _demo_step("P1 draws 2 cards...", func():
-		_draw_one(p1)
-		_draw_one(p1)
-	, 0.6)
-
-	## Step 9: Apply a stat modifier
-	await _demo_step("Applying +800 ATK modifier to P1 first monster...", func():
-		_apply_test_modifier()
-	, 0.8)
-
-	## Step 10: Advance through all phases
-	await _demo_step("Cycling through all phases...", func():
-		pass
-	, 0.3)
-	for _i in TurnContext.Phase.size():
-		_on_phase_advance()
-		await get_tree().create_timer(0.3).timeout
-
-	print("TestBoard: ══ Demo Complete ══\n")
-	_demo_running = false
-
-func _demo_step(label: String, action: Callable, delay: float) -> void:
-	print("TestBoard:   > %s" % label)
-	action.call()
-	await get_tree().create_timer(delay).timeout
 
 func _summon_p2_monster() -> void:
 	## Force a P2 monster directly from deck to field for demo purposes
