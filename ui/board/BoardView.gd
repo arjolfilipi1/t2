@@ -82,13 +82,15 @@ enum PendingState {
 		NONE,            ## Normal — card click shows tooltip
 		AWAIT_ATTACK_TARGET,    ## Player clicked Attack; waiting for target card
 		AWAIT_EFFECT_TARGET,    ## Player clicked Activate; waiting for target card(s)
+		AWAIT_ZONE_SELECTION,
 }
 var _pending_state:       PendingState  = PendingState.NONE
 var _pending_card:        CardInstance  = null   ## Card whose action is pending
 var _pending_effect_idx:  int           = -1     ## Effect index for AWAIT_EFFECT_TARGET
 var _pending_targets:     Array[CardInstance] = []
 var _targets_needed:      int           = 0
-
+var _pending_action_type: String = "" # "summon", "set", "activate"
+var _pending_slot_callback: Callable = Callable() # Called with selected slot index
 # ─── View Maps ────────────────────────────────────────────────────────────────
 
 ## ZoneView for each slotted zone slot: key = "p1_main_monster_0" etc.
@@ -473,6 +475,7 @@ func _on_card_moved(
 	reason: ZoneManager.MoveReason
 ) -> void:
 	var view := get_or_create_card_view(card)
+	view.kill_all_tweens()
 	if _from != null and _from.zone_type ==  Zone.ZoneType.HAND:
 		if view.get_parent() ==self:
 			remove_child(view)
@@ -497,6 +500,7 @@ func _on_card_moved(
 	# Remove from old zone view
 	for zv in _slot_views.values():
 		if zv.get_card_view() == view:
+			view.kill_all_tweens()
 			zv.remove_card(false)
 			break
 	for zv in _pile_views.values():
@@ -612,8 +616,51 @@ func _on_card_inspected(view: CardView, card: CardInstance) -> void:
 	card_inspect_requested.emit(card)
 
 func _on_empty_slot_clicked(zone_view: ZoneView) -> void:
+	# Check if we're waiting for zone selection
+	if _pending_state == PendingState.AWAIT_ZONE_SELECTION:
+		_complete_zone_selection(zone_view)
+		return
+	
+	# Normal empty zone click (not during pending action)
 	_cancel_pending()
 	empty_zone_clicked.emit(zone_view.zone, zone_view.slot_index)
+
+func _complete_zone_selection(zone_view: ZoneView) -> void:
+	var slot := zone_view.slot_index
+	var zone := zone_view.zone
+	
+	# Validate the zone is appropriate for the action
+	match _pending_action_type:
+		"summon":
+			if zone.zone_type != Zone.ZoneType.MAIN_MONSTER:
+				_show_error("Invalid zone for summon!")
+				return
+			game_director.normal_summon(local_player, _pending_card, [], slot)
+			refresh_hand(local_player)
+		
+		"set":
+			var expected_type = Zone.ZoneType.MAIN_MONSTER if _pending_card.definition.is_monster() else Zone.ZoneType.MAIN_SPELL
+			if zone.zone_type != expected_type:
+				_show_error("Invalid zone for set!")
+				return
+			game_director.set_card(local_player, _pending_card, slot)
+			refresh_hand(local_player)
+		
+		"activate":
+			# For activation, you might want to place continuous spells/traps in specific slots
+			game_director.activate_effect(local_player, _pending_card, 0, [])
+	
+	_cancel_pending()
+func _show_error(message: String) -> void:
+	print("Error: %s" % message)
+	# Optional: Show a temporary error label
+	if _turn_label:
+		var old_text = _turn_label.text
+		_turn_label.text = message
+		_turn_label.modulate = Color(1.0, 0.3, 0.3)
+		await get_tree().create_timer(1.5).timeout
+		_turn_label.text = old_text
+		_turn_label.modulate = Color(0.7, 0.7, 0.7)
 # ─── Tooltip Action Routing ───────────────────────────────────────────────────
 
 func _on_tooltip_action(action: int, card: CardInstance) -> void:
@@ -634,26 +681,71 @@ func _on_tooltip_action(action: int, card: CardInstance) -> void:
 func _do_summon(card: CardInstance) -> void:
 	if game_director == null:
 		return
-	## Tribute selection handled by InputRequest flow in GameDirector.
-	## For non-tribute monsters, fire immediately.
-	if not card.definition.requires_tribute():
-		game_director.normal_summon(local_player, card)
+	 # Check if zone selection is needed
+	var monster_zone := zone_manager.monster_zone_of(local_player)
+	var empty_slots := monster_zone.empty_slot_count()
+	
+	if empty_slots == 0:
+		print("No empty monster zones!")
+		return
+	
+	if empty_slots == 1:
+		# Only one choice - place it automatically
+		game_director.normal_summon(local_player, card, [], monster_zone.first_empty_slot())
 		refresh_hand(local_player)
 		return
-
-	## Tribute required — highlight valid tribute targets and wait.
-	## For now submit with empty tributes; GameDirector will emit
-	## an InputRequest if tributes are needed.
-	game_director.normal_summon(local_player, card)
-	refresh_hand(local_player)
+	
+	# Multiple empty zones - ask player to choose
+	_pending_state = PendingState.AWAIT_ZONE_SELECTION
+	_pending_card = card
+	_pending_action_type = "summon"
+	
+	# Highlight empty monster zones
+	clear_all_glows()
+	clear_zone_highlights()
+	highlight_empty_zones(Zone.ZoneType.MAIN_MONSTER, local_player, true)
+	
+	_show_cancel_hint("Click on an empty monster zone to summon %s" % card.definition.card_name)
 
 # ─── Set ──────────────────────────────────────────────────────────────────────
 
 func _do_set(card: CardInstance) -> void:
 	if game_director == null:
 		return
-	game_director.set_card(local_player, card)
-	refresh_hand(local_player)
+	
+	var target_zone: Zone
+	var zone_type: Zone.ZoneType
+	
+	if card.definition.is_monster():
+		target_zone = zone_manager.monster_zone_of(local_player)
+		zone_type = Zone.ZoneType.MAIN_MONSTER
+	else:
+		target_zone = zone_manager.spell_zone_of(local_player)
+		zone_type = Zone.ZoneType.MAIN_SPELL
+	
+	var empty_slots := target_zone.empty_slot_count()
+	
+	if empty_slots == 0:
+		print("No empty zones!")
+		return
+	
+	if empty_slots == 1:
+		game_director.set_card(local_player, card, target_zone.first_empty_slot())
+		refresh_hand(local_player)
+		return
+	
+	# Multiple empty zones - ask player to choose
+	_pending_state = PendingState.AWAIT_ZONE_SELECTION
+	_pending_card = card
+	_pending_action_type = "set"
+	
+	clear_all_glows()
+	clear_zone_highlights()
+	highlight_empty_zones(zone_type, local_player, true)
+	
+	_show_cancel_hint("Click on an empty %s zone to set %s" % 
+		["monster" if card.definition.is_monster() else "spell/trap", 
+		 card.definition.card_name])
 
 # ─── Attack Flow ──────────────────────────────────────────────────────────────
 
@@ -715,7 +807,17 @@ func _begin_activate_flow(card: CardInstance) -> void:
 
 	if eff_list.is_empty():
 		return
-
+	# If activating a Continuous Spell/Trap from hand, need to place it first
+	if card.is_in_hand() and card.definition.is_spell() and card.definition.spell_type == CardDefinition.SpellType.CONTINUOUS:
+		_pending_state = PendingState.AWAIT_ZONE_SELECTION
+		_pending_card = card
+		_pending_action_type = "activate"
+		
+		clear_all_glows()
+		clear_zone_highlights()
+		highlight_empty_zones(Zone.ZoneType.MAIN_SPELL, local_player, true)
+		_show_cancel_hint("Click on an empty spell/trap zone to place %s" % card.definition.card_name)
+		return	
 	## If the card has more than one activatable effect, pick the first for now.
 	## A future improvement would show a sub-menu to choose which effect.
 	var eff_idx: int           = eff_list[0]
@@ -772,15 +874,44 @@ func _collect_effect_target(card: CardInstance) -> void:
 		game_director.activate_effect(local_player, source, eff_idx, targets)
 
 # ─── Pending State Helpers ────────────────────────────────────────────────────
+func highlight_empty_zones(zone_type: Zone.ZoneType, player: Player, highlight: bool) -> void:
+	var pid := "p%d" % player.player_id
+	
+	match zone_type:
+		Zone.ZoneType.MAIN_MONSTER:
+			for i in range(5):
+				var key := "%s_main_monster_%d" % [pid, i]
+				var zv: ZoneView = _slot_views.get(key, null)
+				if zv and zv.is_empty():
+					zv.set_drop_highlight(highlight)
+		
+		Zone.ZoneType.MAIN_SPELL:
+			for i in range(5):
+				var key := "%s_main_spell_%d" % [pid, i]
+				var zv: ZoneView = _slot_views.get(key, null)
+				if zv and zv.is_empty():
+					zv.set_drop_highlight(highlight)
+		
+		Zone.ZoneType.FIELD_SPELL:
+			var key := "%s_field_spell_0" % pid
+			var zv: ZoneView = _slot_views.get(key, null)
+			if zv and zv.is_empty():
+				zv.set_drop_highlight(highlight)
 
+## Clear all zone highlights
+func clear_zone_highlights() -> void:
+	for zv in _slot_views.values():
+		zv.set_drop_highlight(false)
 func _cancel_pending() -> void:
 	_pending_state      = PendingState.NONE
 	_pending_card       = null
+	_pending_action_type = ""
 	_pending_effect_idx = -1
 	_pending_targets.clear()
 	_targets_needed     = 0
 	deselect_all()
 	clear_all_glows()
+	clear_zone_highlights()
 	_hide_cancel_hint()
 
 func _show_cancel_hint(text: String) -> void:

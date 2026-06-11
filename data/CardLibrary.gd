@@ -33,6 +33,7 @@ func _make_ash_blossom() -> CardDefinition:
 	eff.category    = EffectDefinition.EffectCategory.QUICK
 	eff.once_per_turn = true
 	eff.is_continuous = false
+	eff.min_chain_link = 2
 	eff.costs = [EffectCost.DiscardSelfCost.new()]
 	eff.conditions = [EffectCondition.SourceInZoneCondition.in_hand()]
 	var negate := EffectResolutionStep.NegateTopChainLinkStep.new()

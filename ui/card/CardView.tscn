@@ -116,6 +116,7 @@ offset_bottom = 145.0
 mouse_filter = 2
 
 [node name="SelectionBorder" type="Panel" parent="."]
+visible = false
 layout_mode = 0
 offset_left = -2.0
 offset_top = -2.0

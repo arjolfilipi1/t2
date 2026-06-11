@@ -419,6 +419,39 @@ static func can_activate_effect(
 				"Spell Speed %d cannot be chained to Spell Speed %d." % [
 					eff.spell_speed, min_speed
 				])
+	# ── Chain link requirement check ─────────────────────────────────────────
+	if not stack.chain_is_empty():
+		var current_depth := stack.depth()
+		
+		# The new link will be at depth + 1
+		var new_link_number := current_depth + 1
+		
+		# Check exact chain link
+		if eff.exact_chain_link > 0:
+			if new_link_number != eff.exact_chain_link:
+				return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+					"This effect must be Chain Link %d (current would be %d)" % [eff.exact_chain_link, new_link_number])
+		
+		# Check minimum chain link
+		if eff.min_chain_link > 0:
+			if new_link_number < eff.min_chain_link:
+				return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+					"This effect requires Chain Link %d or higher (current would be %d)" % [eff.min_chain_link, new_link_number])
+		
+		# Check maximum chain link
+		if eff.max_chain_link > 0:
+			if new_link_number > eff.max_chain_link:
+				return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+					"This effect requires Chain Link %d or lower (current would be %d)" % [eff.max_chain_link, new_link_number])
+	else:
+		# Chain is empty - new link will be CL1
+		if eff.min_chain_link > 1:
+			return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+				"This effect cannot be Chain Link 1 - requires CL%d or higher" % eff.min_chain_link)
+		
+		if eff.exact_chain_link > 1:
+			return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
+				"This effect must be Chain Link %d" % eff.exact_chain_link)
 	# Chain condition check — e.g. Ash Blossom only chains to search/draw/SS effects
 	if not eff.chain_condition.is_null() and not stack.chain_is_empty():
 		var top := stack.top_link()

@@ -47,7 +47,9 @@ enum EffectCategory {
 @export var trigger:   EffectTrigger  = EffectTrigger.NONE
 @export var timing:    EffectTiming   = EffectTiming.OPTIONAL
 @export var category:  EffectCategory = EffectCategory.IGNITION
-
+@export var min_chain_link:int        = 0
+@export var max_chain_link:int        = 0
+@export var exact_chain_link:int        = 0
 @export var spell_speed: int = 1  ## 1 = Ignition/Trigger, 2 = Quick, 3 = Counter
 
 ## If true, activating this effect does not start a chain (continuous effects)
@@ -55,8 +57,8 @@ enum EffectCategory {
 
 ## Once per turn? Tracked at runtime via CardInstance.used_effects
 @export var once_per_turn: bool = true
-@export var once_per_turn_per_player: bool = true
-@export var once_per_duel_per_player: bool = true
+@export var once_per_turn_per_player: bool = false
+@export var once_per_duel_per_player: bool = false
 
 ## Once per duel?
 @export var once_per_duel: bool = false

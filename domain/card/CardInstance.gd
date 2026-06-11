@@ -285,6 +285,7 @@ func record_special_summon(turn: int, method: StringName) -> void:
 	special_summon_method = method
 
 func has_summoning_sickness(current_turn: int) -> bool:
+	return true
 	## A monster cannot attack on the same turn it was Normal Summoned,
 	## unless it has an effect that negates this.
 	if has_flag(&"can_attack_immediately"):

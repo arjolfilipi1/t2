@@ -288,6 +288,7 @@ func _begin_resolution() -> void:
 
 	# Check for triggers that fired during resolution
 	state = StackState.IDLE
+	priority_holder = turn_player
 	#if _pending_triggers.is_empty():
 	stack_idle.emit()
 	# If _pending_triggers is not empty, the next evaluate_triggers call
@@ -560,7 +561,10 @@ func _current_turn() -> int:
 	if has_meta(&"current_turn"):
 		return get_meta(&"current_turn")
 	return 0
-
+func set_turn_player(player:Player):
+	turn_player = player
+	if state == StackState.IDLE:
+		priority_holder = player
 # ─── Debug ────────────────────────────────────────────────────────────────────
 
 func debug_print_chain() -> void:

@@ -1,24 +1,11 @@
-[gd_scene load_steps=2 format=3 uid="uid://board_view"]
+[gd_scene load_steps=2 format=3 uid="uid://rxirig1h8vcs"]
 
 [ext_resource type="Script" path="res://ui/board/BoardView.gd" id="1_boardview"]
 
-; BoardView.tscn
-; The entire board scene. All zone views and HUD nodes are
-; built procedurally in BoardView.gd::setup(), so this scene
-; is intentionally a thin shell — just the root Control node
-; with the script attached.
-;
-; Usage in a parent scene or autoload:
-;
-;   var board = preload("res://ui/board/BoardView.tscn").instantiate()
-;   add_child(board)
-;   board.setup(zone_manager, effect_stack, [p1, p2])
-;
-; Or just attach TestBoard.gd to a Node2D and run — it instantiates
-; BoardView entirely in code.
-
 [node name="BoardView" type="Control"]
-script = ExtResource("1_boardview")
 custom_minimum_size = Vector2(1280, 720)
+layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+script = ExtResource("1_boardview")

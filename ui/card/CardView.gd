@@ -360,7 +360,11 @@ void fragment() {
 	glow_rect.position = Vector2.ZERO
 
 # ─── Move Animation ───────────────────────────────────────────────────────────
-
+func kill_all_tweens() ->void:
+	if _tween and _tween.is_valid():
+		_tween.kill()
+		_tween=null
+	
 ## Animate this card moving to a new global position.
 ## Called by BoardView after it repositions the card's parent container.
 func animate_move_to(target_global: Vector2) -> void:
@@ -383,6 +387,8 @@ func animate_destroy(done_callback: Callable) -> void:
 
 ## Summon pop-in: start slightly scaled down, bounce up.
 func animate_summon() -> void:
+	kill_all_tweens()
+	_is_hovered = false
 	scale = Vector2(0.6, 0.6)
 	modulate.a = 0.0
 	var tw := create_tween()
@@ -391,7 +397,7 @@ func animate_summon() -> void:
 	tw.set_trans(Tween.TRANS_BACK)
 	tw.tween_property(self, "scale", Vector2.ONE, 0.3)
 	tw.tween_property(self, "modulate:a", 1.0, 0.2)
-
+	_tween = tw
 # ─── Selection ────────────────────────────────────────────────────────────────
 
 func set_selected(selected: bool) -> void:
@@ -404,22 +410,26 @@ func set_selected(selected: bool) -> void:
 # ─── Hover ────────────────────────────────────────────────────────────────────
 
 func _on_mouse_entered() -> void:
-
+	if _is_hovered:
+		return
+	if _tween and _tween.is_valid():
+		_tween.kill()
 	_is_hovered = true
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.tween_property(self, "position:y", position.y + HOVER_LIFT, 0.12)
 	# Scale slightly
 	tw.parallel().tween_property(self, "scale", Vector2(1.06, 1.06), 0.12)
-
+	_tween = tw
 func _on_mouse_exited() -> void:
-
+	if not _is_hovered:
+		return
 	_is_hovered = false
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.tween_property(self, "position:y", position.y - HOVER_LIFT, 0.12)
 	tw.parallel().tween_property(self, "scale", Vector2.ONE, 0.12)
-
+	_tween = tw
 # ─── Input ────────────────────────────────────────────────────────────────────
 
 func _on_gui_input(event: InputEvent) -> void:

@@ -307,9 +307,10 @@ func _pass_turn() -> void:
 	# Increment turn number every full round (when index wraps to 0)
 	if _active_index == 0:
 		_turn_number += 1
-
+	
 	turn_started.emit(_turn_number, _active_player())
 	active_player_changed.emit(_active_player())
+	_stack.set_turn_player(_active_player())
 	_enter_phase(TurnContext.Phase.DRAW)
 
 # ─── End-Phase Housekeeping ───────────────────────────────────────────────────
