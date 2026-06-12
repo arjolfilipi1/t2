@@ -57,7 +57,8 @@ func _ready() -> void:
 	_populate_decks()
 	_initial_hand_deal()
 	gd.start_game()
-	_update_hud()
+	board.tree_entered.connect(_update_hud,ConnectFlags.CONNECT_ONE_SHOT)
+	#_update_hud()
 	_print_controls()
 
 func _boot_domain() -> void:
@@ -76,8 +77,10 @@ func _boot_domain() -> void:
 	ai.setup(p2, gd)
 	print("AI priority_passed connections:", gd.stack.priority_passed.get_connections())
 func _boot_ui() -> void:
-	board = BoardView.new()
+	const BoardScene = preload("res://ui/board/BoardView.tscn")
+	board = BoardScene.instantiate()
 	add_child(board)
+	await get_tree().process_frame
 	board.setup(gd.zm, gd.stack, [p1, p2],gd)
 
 	board.card_clicked.connect(_on_card_clicked)
@@ -227,7 +230,7 @@ func _draw_one(player: Player) -> void:
 	var top := deck.peek_top()
 	zm.move(top, zm.hand_of(player), ZoneManager.MoveReason.DRAW)
 	if player == p1:
-		board.reveal_hand(p1)
+		board.reveal_hand(p1,zm)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Keyboard Input
