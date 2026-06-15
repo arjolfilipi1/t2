@@ -26,6 +26,8 @@ theme = ExtResource("4_theme")
 script = ExtResource("1_board_script")
 
 [node name="Background" type="ColorRect" parent="."]
+visible = false
+z_index = -2
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -39,10 +41,15 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = 5.0
+offset_top = 360.0
+offset_right = -325.0
+offset_bottom = -355.0
 grow_horizontal = 2
 grow_vertical = 2
 
 [node name="FieldTexture" type="TextureRect" parent="."]
+z_index = -1
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -54,16 +61,17 @@ expand_mode = 1
 stretch_mode = 4
 
 [node name="P2_InfoBar" type="Panel" parent="."]
+z_index = 2
 layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -300.0
-offset_top = 8.0
-offset_right = 300.0
-offset_bottom = 48.0
+offset_left = -298.0
+offset_top = 2.0
+offset_right = 302.0
+offset_bottom = 42.0
 grow_horizontal = 2
 grow_vertical = 0
 
@@ -101,6 +109,7 @@ offset_bottom = 35.0
 text = "Banish"
 
 [node name="Zones" type="Control" parent="."]
+z_index = 1
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -116,68 +125,35 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -450.0
-offset_top = 60.0
+offset_top = -700.0
 offset_right = 450.0
-offset_bottom = 260.0
+offset_bottom = -360.0
 grow_horizontal = 2
 grow_vertical = 0
 
 [node name="P2_Monsters" type="GridContainer" parent="Zones/P2"]
 layout_mode = 1
-offset_left = 90.0
-offset_right = 630.0
-offset_bottom = 153.0
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 100.0
+offset_top = -207.0
+offset_right = 656.0
+offset_bottom = -54.0
+grow_vertical = 0
 columns = 5
-
-[node name="MonsterSlot0" type="Control" parent="Zones/P2/P2_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-size_flags_horizontal = 0
-size_flags_vertical = 0
-
-[node name="MonsterSlot1" type="Control" parent="Zones/P2/P2_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot2" type="Control" parent="Zones/P2/P2_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot3" type="Control" parent="Zones/P2/P2_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot4" type="Control" parent="Zones/P2/P2_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
 
 [node name="P2_Spells" type="GridContainer" parent="Zones/P2"]
 layout_mode = 1
-offset_left = 90.0
-offset_top = 163.0
-offset_right = 630.0
-offset_bottom = 316.0
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 100.0
+offset_top = -360.0
+offset_right = 656.0
+offset_bottom = -207.0
+grow_vertical = 0
 columns = 5
-
-[node name="SpellSlot0" type="Control" parent="Zones/P2/P2_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot1" type="Control" parent="Zones/P2/P2_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot2" type="Control" parent="Zones/P2/P2_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot3" type="Control" parent="Zones/P2/P2_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot4" type="Control" parent="Zones/P2/P2_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
 
 [node name="P2_FieldSpell" type="Control" parent="Zones/P2"]
 layout_mode = 1
@@ -197,69 +173,29 @@ offset_bottom = 233.0
 
 [node name="P1" type="Control" parent="Zones"]
 layout_mode = 1
+anchors_preset = 5
 anchor_left = 0.5
-anchor_top = 0.5
 anchor_right = 0.5
-anchor_bottom = 1.0
 offset_left = -450.0
-offset_top = -260.0
+offset_top = 340.0
 offset_right = 450.0
+offset_bottom = 680.0
 grow_horizontal = 2
-grow_vertical = 0
 
 [node name="P1_Monsters" type="GridContainer" parent="Zones/P1"]
 layout_mode = 1
-offset_left = 90.0
-offset_top = -153.0
-offset_right = 630.0
-columns = 5
-
-[node name="MonsterSlot0" type="Control" parent="Zones/P1/P1_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot1" type="Control" parent="Zones/P1/P1_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot2" type="Control" parent="Zones/P1/P1_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot3" type="Control" parent="Zones/P1/P1_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="MonsterSlot4" type="Control" parent="Zones/P1/P1_Monsters"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="P1_Spells" type="GridContainer" parent="Zones/P1"]
-layout_mode = 1
-offset_left = 90.0
-offset_right = 630.0
+offset_left = 100.0
+offset_right = 656.0
 offset_bottom = 153.0
 columns = 5
 
-[node name="SpellSlot0" type="Control" parent="Zones/P1/P1_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot1" type="Control" parent="Zones/P1/P1_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot2" type="Control" parent="Zones/P1/P1_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot3" type="Control" parent="Zones/P1/P1_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
-
-[node name="SpellSlot4" type="Control" parent="Zones/P1/P1_Spells"]
-custom_minimum_size = Vector2(108, 153)
-layout_mode = 2
+[node name="P1_Spells" type="GridContainer" parent="Zones/P1"]
+layout_mode = 1
+offset_left = 100.0
+offset_top = 153.0
+offset_right = 656.0
+offset_bottom = 306.0
+columns = 5
 
 [node name="P1_FieldSpell" type="Control" parent="Zones/P1"]
 layout_mode = 1
@@ -278,6 +214,7 @@ offset_right = 720.0
 offset_bottom = 3.0
 
 [node name="P1_InfoBar" type="Panel" parent="."]
+z_index = 2
 layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
@@ -324,35 +261,36 @@ offset_bottom = 35.0
 text = "Banish"
 
 [node name="HUD_Bar" type="Panel" parent="."]
+z_index = 2
 layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -370.0
-offset_top = -138.0
-offset_right = 430.0
-offset_bottom = -58.0
+offset_left = -362.0
+offset_top = -128.0
+offset_right = 438.0
+offset_bottom = -48.0
 grow_horizontal = 2
 grow_vertical = 0
 theme_override_styles/panel = SubResource("StyleBox_hud_panel")
 
 [node name="PhaseLabel" type="Label" parent="HUD_Bar"]
 layout_mode = 0
-offset_left = 150.0
-offset_top = 8.0
-offset_right = 250.0
-offset_bottom = 28.0
+offset_left = 436.0
+offset_top = 21.0
+offset_right = 536.0
+offset_bottom = 41.0
 text = "MAIN PHASE 1"
 horizontal_alignment = 1
 
 [node name="TurnLabel" type="Label" parent="HUD_Bar"]
 layout_mode = 0
-offset_left = 150.0
-offset_top = -8.0
-offset_right = 250.0
-offset_bottom = 8.0
+offset_left = 435.0
+offset_top = 2.0
+offset_right = 535.0
+offset_bottom = 19.0
 text = "Turn 1 - Player 1"
 horizontal_alignment = 1
 
@@ -373,6 +311,7 @@ offset_bottom = 35.0
 text = "END"
 
 [node name="Draw Button" type="Button" parent="HUD_Bar"]
+layout_mode = 0
 offset_left = 169.0
 offset_top = 7.0
 offset_right = 229.0

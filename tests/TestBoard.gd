@@ -54,12 +54,14 @@ var _demo_running := false
 func _ready() -> void:
 	_boot_domain()
 	_boot_ui()
+	await get_tree().process_frame
+	print("r",board.players)
 	_populate_decks()
 	_initial_hand_deal()
 	gd.start_game()
 	board.tree_entered.connect(_update_hud,ConnectFlags.CONNECT_ONE_SHOT)
 	#_update_hud()
-	_print_controls()
+	#_print_controls()
 
 func _boot_domain() -> void:
 	CardFactory.reset_counter()
@@ -82,7 +84,7 @@ func _boot_ui() -> void:
 	add_child(board)
 	await get_tree().process_frame
 	board.setup(gd.zm, gd.stack, [p1, p2],gd)
-
+	print("bui",board.players)
 	board.card_clicked.connect(_on_card_clicked)
 	board.empty_zone_clicked.connect(_on_empty_zone_clicked)
 	board.phase_advance_requested.connect(_on_phase_advance)
@@ -215,6 +217,9 @@ func _trap_def(id: StringName, name: String, ttype: CardDefinition.TrapType) -> 
 func _initial_hand_deal() -> void:
 	_draw_n(p1, 5)
 	_draw_n(p2, 5)
+	print(board.players)
+	board.refresh_hand(p1)
+	board.refresh_hand(p2)
 	board.reveal_hand(p1)   ## P1 cards are face-up (local player)
 	## P2 hand stays face-down (opponent)
 
@@ -229,6 +234,7 @@ func _draw_one(player: Player) -> void:
 		return
 	var top := deck.peek_top()
 	zm.move(top, zm.hand_of(player), ZoneManager.MoveReason.DRAW)
+	
 	if player == p1:
 		board.reveal_hand(p1,zm)
 
@@ -239,8 +245,10 @@ func _draw_one(player: Player) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _demo_running:
 		return
+
 	if not event is InputEventKey or not event.pressed:
 		return
+
 
 	match event.keycode:
 		KEY_C:
