@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://ui/card/CardView.gd" id="1_cardview"]
 
 [node name="CardView" type="Control"]
+z_index = 2
 custom_minimum_size = Vector2(100, 150)
 layout_mode = 3
 anchor_right = 0.078
