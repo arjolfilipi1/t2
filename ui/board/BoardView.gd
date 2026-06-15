@@ -23,9 +23,28 @@
 ##
 class_name BoardView
 extends Control
-
+const ZoneViewScene = preload("res://ui/board/ZoneView.tscn")
 # ─── Signals ──────────────────────────────────────────────────────────────────
+# ─── Scene Node References ────────────────────────────────────────────────
+@onready var background: ColorRect = $Background
+@onready var field_divider: Control = $FieldDivider
+@onready var p1_lp_label: Label = $P1_InfoBar/P1_LP
+@onready var p2_lp_label: Label = $P2_InfoBar/P2_LP
+@onready var phase_label: Label = $HUD_Bar/PhaseLabel
+@onready var turn_label: Label = $HUD_Bar/TurnLabel
+@onready var pass_button: Button = $HUD_Bar/PassButton
+@onready var end_button: Button = $HUD_Bar/EndButton
+@onready var draw_button: Button = $"HUD_Bar/Draw Button"
+@onready var chain_hud: Panel = $ChainDisplay
+@onready var tooltip: CardTooltip = $CardTooltip
 
+# ─── Zone Containers (to be populated dynamically) ────────────────────────
+@onready var p1_monster_zone: GridContainer = $Zones/P1/P1_Monsters
+@onready var p1_spell_zone: GridContainer = $Zones/P1/P1_Spells
+@onready var p2_monster_zone: GridContainer = $Zones/P2/P2_Monsters
+@onready var p2_spell_zone: GridContainer = $Zones/P2/P2_Spells
+@onready var p1_graveyard: Button = $P1_InfoBar/P1_Graveyard
+@onready var p2_graveyard: Button = $P2_InfoBar/P2_Graveyard
 ## Player clicked a card (intent determined by current game state).
 signal card_clicked(card: CardInstance, view: CardView)
 signal pass_priority_requested()
@@ -106,21 +125,16 @@ var _card_views: Dictionary = {}   ## int → CardView
 var _selected_view: CardView = null
 
 # ─── HUD Nodes ────────────────────────────────────────────────────────────────
-var _pass_btn: Button
-var _phase_label:   Label
-var _turn_label:    Label
-var _p1_lp_label:  Label
-var _p2_lp_label:  Label
-var _chain_hud:     Control  ## EffectChainHUD
-var _end_btn:       Button
-var _draw_btn:      Button
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
-var _tooltip: CardTooltip
+
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
-	_build_field_background()
+	print("p1_lp_label:",p1_lp_label)
+	#_build_field_background()
 
+func _enter_tree() -> void:
+	print("te:p1_lp_label:",p1_lp_label)
 
 func setup(
 		zm:          ZoneManager,
@@ -132,11 +146,18 @@ func setup(
 	zone_manager = zm
 	effect_stack = stack
 	players      = player_list
+	print(players)
 	game_director = gd
 	local_player  = player_list[0]
-	_build_zone_views()
-	_build_hud()
 
+	if pass_button:
+		pass_button.pressed.connect(func():pass_priority_requested.emit())
+	if end_button:
+		end_button.pressed.connect(func():phase_advance_requested.emit())
+	if draw_button:
+		draw_button.pressed.connect(func():draw_requested.emit())
+	if tooltip:
+		tooltip.action_selected.connect(_on_tooltip_action)
 	# Connect to ZoneManager
 	zone_manager.card_moved.connect(_on_card_moved)
 	zone_manager.zone_changed.connect(_on_zone_changed)
@@ -147,150 +168,53 @@ func setup(
 	effect_stack.chain_resolved.connect(_on_chain_resolved)
 	effect_stack.priority_passed.connect(_on_priority_passed)
 	effect_stack.triggers_pending.connect(_on_triggers_pending)
-
+	_build_zone_views_from_scene()
+# Create a new method to use scene containers
+func _build_zone_views_from_scene() -> void:
+	# Clear existing views if any
+	for child in p1_monster_zone.get_children():
+		if child is ZoneView:
+			child.queue_free()
+	for child in p1_spell_zone.get_children():
+		if child is ZoneView:
+			child.queue_free()
+	for child in p2_monster_zone.get_children():
+		if child is ZoneView:
+			child.queue_free()
+	for child in p2_spell_zone.get_children():
+		if child is ZoneView:
+			child.queue_free()
+	
+	for player in players:
+		var is_p1 := player == players[0]
+		var monster_grid = p1_monster_zone if is_p1 else p2_monster_zone
+		var spell_grid = p1_spell_zone if is_p1 else p2_spell_zone
+		var pid := "p%d" % player.player_id
+		
+		# Create 5 monster slot ZoneViews
+		for i in 5:
+			var zv := ZoneViewScene.instantiate()
+			monster_grid.add_child(zv)
+			zv.setup(zone_manager.monster_zone_of(player), i, "M%d_%s" % [i,pid])
+			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+			_slot_views["%s_main_monster_%d" % [pid, i]] = zv
+		
+		# Create 5 spell/trap slot ZoneViews
+		for i in 5:
+			var zv := ZoneViewScene.instantiate()
+			spell_grid.add_child(zv)
+			zv.setup(zone_manager.spell_zone_of(player), i, "S%d_%s" % [i,pid])
+			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+			_slot_views["%s_main_spell_%d" % [pid, i]] = zv
 # ─── Zone View Construction ───────────────────────────────────────────────────
 
-func _build_zone_views() -> void:
-	for player in players:
-		var is_p1   := player == players[0]
-		var monster_y := FIELD_ROW_Y_P1_MONSTER if is_p1 else FIELD_ROW_Y_P2_MONSTER
-		var spell_y   := FIELD_ROW_Y_P1_SPELL   if is_p1 else FIELD_ROW_Y_P2_SPELL
-		var pid       := "p%d" % player.player_id
 
-		# 5 monster slots
-		for i in 5:
-			var zv := _make_zone_view(
-				zone_manager.monster_zone_of(player), i,
-				"M%d" % i,
-				Vector2(FIELD_COLS_X[i], monster_y)
-			)
-			_slot_views["%s_main_monster_%d" % [pid, i]] = zv
 
-		# 5 spell/trap slots
-		for i in 5:
-			var zv := _make_zone_view(
-				zone_manager.spell_zone_of(player), i,
-				"S%d" % i,
-				Vector2(FIELD_COLS_X[i], spell_y)
-			)
-			_slot_views["%s_main_spell_%d" % [pid, i]] = zv
 
-		# Field spell zone
-		var fs_y := spell_y
-		var fs_zv := _make_zone_view(
-			zone_manager.field_spell_zone_of(player), 0,
-			"FIELD",
-			Vector2(FIELD_SPELL_X, fs_y)
-		)
-		_slot_views["%s_field_spell_0" % pid] = fs_zv
 
-		# Graveyard pile
-		var gy_zv := _make_pile_view(
-			zone_manager.graveyard_of(player), "GY",
-			Vector2(GRAVEYARD_X, monster_y)
-		)
-		_pile_views["%s_graveyard" % pid] = gy_zv
-
-		# Deck pile
-		var deck_zv := _make_pile_view(
-			zone_manager.deck_of(player), "DECK",
-			Vector2(DECK_X, spell_y)
-		)
-		_pile_views["%s_deck" % pid] = deck_zv
-
-		# Extra deck pile
-		var ex_zv := _make_pile_view(
-			zone_manager.extra_deck_of(player), "EXTRA",
-			Vector2(EXTRA_DECK_X, spell_y)
-		)
-		_pile_views["%s_extra_deck" % pid] = ex_zv
-
-		# Banished pile (offset beside GY)
-		var ban_zv := _make_pile_view(
-			zone_manager.banished_of(player), "BANISH",
-			Vector2(GRAVEYARD_X + SLOT_W + SLOT_GAP, monster_y)
-		)
-		_pile_views["%s_banished" % pid] = ban_zv
-
-func _make_zone_view(zone: Zone, slot: int, label: String, pos: Vector2) -> ZoneView:
-	var zv := ZoneView.new()
-	add_child(zv)
-	zv.position = pos
-	zv.setup(zone, slot, label)
-	zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
-	return zv
-
-func _make_pile_view(zone: Zone, label: String, pos: Vector2) -> ZoneView:
-	var zv := ZoneView.new()
-	add_child(zv)
-	zv.position = pos
-	zv.setup(zone, -1, label)
-	zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
-	return zv
 
 # ─── HUD Construction ─────────────────────────────────────────────────────────
 
-func _build_hud() -> void:
-	# Phase / turn indicator
-	_phase_label = Label.new()
-	_phase_label.name     = "PhaseLabel"
-	_phase_label.position = Vector2(VIEWPORT_W / 2.0 - 80, HUD_Y + 4)
-	_phase_label.size     = Vector2(160, 24)
-	_phase_label.add_theme_font_size_override("font_size", 13)
-	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_phase_label.modulate = Color(0.9, 0.85, 0.6)
-	add_child(_phase_label)
-
-	_turn_label = Label.new()
-	_turn_label.name     = "TurnLabel"
-	_turn_label.position = Vector2(VIEWPORT_W / 2.0 - 80, HUD_Y - 16)
-	_turn_label.size     = Vector2(160, 18)
-	_turn_label.add_theme_font_size_override("font_size", 9)
-	_turn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_turn_label.modulate = Color(0.7, 0.7, 0.7)
-	add_child(_turn_label)
-
-	# LP displays
-	_p1_lp_label = _make_lp_label("P1 LP: 8000", Vector2(20, HUD_Y))
-	_p2_lp_label = _make_lp_label("P2 LP: 8000", Vector2(20, 10))
-
-	# End turn button
-	_end_btn = Button.new()
-	_end_btn.name     = "EndTurnBtn"
-	_end_btn.text     = "END PHASE ▶"
-	_end_btn.position = Vector2(VIEWPORT_W - 130, HUD_Y)
-	_end_btn.size     = Vector2(120, 30)
-	_end_btn.add_theme_font_size_override("font_size", 10)
-	_end_btn.pressed.connect(func(): phase_advance_requested.emit())
-	add_child(_end_btn)
-
-	# Draw button
-	_draw_btn = Button.new()
-	_draw_btn.name     = "DrawBtn"
-	_draw_btn.text     = "DRAW"
-	_draw_btn.position = Vector2(VIEWPORT_W - 260, HUD_Y)
-	_draw_btn.size     = Vector2(70, 30)
-	_draw_btn.add_theme_font_size_override("font_size", 10)
-	_draw_btn.pressed.connect(func(): draw_requested.emit())
-	add_child(_draw_btn)
-
-	# Chain HUD (built inline)
-	_chain_hud = _build_chain_hud()
-	add_child(_chain_hud)
-	const TooltipScene := preload("res://ui/card/CardTooltip.tscn")
-	_pass_btn          = Button.new()
-	_pass_btn.name     = "PassBtn"
-	_pass_btn.text     = "PASS"
-	_pass_btn.position = Vector2(VIEWPORT_W - 350, HUD_Y)
-	_pass_btn.size     = Vector2(70, 30)
-	_pass_btn.add_theme_font_size_override("font_size", 10)
-	_pass_btn.pressed.connect(func(): pass_priority_requested.emit())
-	add_child(_pass_btn)
-
-	# inside _build_hud():
-	_tooltip = TooltipScene.instantiate()
-	add_child(_tooltip)
-	_tooltip.action_selected.connect(_on_tooltip_action)
 
 func _make_lp_label(text: String, pos: Vector2) -> Label:
 	var lbl := Label.new()
@@ -302,30 +226,6 @@ func _make_lp_label(text: String, pos: Vector2) -> Label:
 	add_child(lbl)
 	return lbl
 
-func _build_chain_hud() -> Control:
-	var hud := Control.new()
-	hud.name     = "ChainHUD"
-	hud.position = Vector2(10, HUD_Y - 60)
-	hud.size     = Vector2(400, 55)
-	return hud
-
-# ─── Background ───────────────────────────────────────────────────────────────
-
-func _build_field_background() -> void:
-	# Deep space felt
-	var bg := ColorRect.new()
-	bg.name         = "Background"
-	bg.size         = Vector2(VIEWPORT_W, VIEWPORT_H)
-	bg.color        = Color(0.05, 0.06, 0.10)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
-
-	# Centred field divider line
-	var divider := _FieldDivider.new()
-	divider.name         = "FieldDivider"
-	divider.size         = Vector2(VIEWPORT_W, VIEWPORT_H)
-	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(divider)
 
 # ─── Card View Lifecycle ──────────────────────────────────────────────────────
 
@@ -396,7 +296,9 @@ func conceal_hand(player: Player) -> void:
 		var view := get_or_create_card_view(card)
 		view.flip_to(false)
 ## Flip all hand cards face-up (for the local player).
-func reveal_hand(player: Player) -> void:
+func reveal_hand(player: Player,zm:ZoneManager= zone_manager) -> void:
+	if not zone_manager:
+		zone_manager = zm
 	for card in zone_manager.hand_of(player).get_cards():
 		var view := get_or_create_card_view(card)
 		view.flip_to(true)
@@ -441,30 +343,36 @@ func deselect_all() -> void:
 
 func update_lp(player: Player, lp: int) -> void:
 	if player == players[0]:
-		_p1_lp_label.text = "P1 LP: %d" % lp
+		p1_lp_label.text = "P1 LP: %d" % lp
 	else:
-		_p2_lp_label.text = "P2 LP: %d" % lp
+		p2_lp_label.text = "P2 LP: %d" % lp
 
 func update_phase(phase_name: String, turn: int, active_player: int) -> void:
-	_phase_label.text = phase_name
-	_turn_label.text  = "Turn %d — Player %d" % [turn, active_player]
+	phase_label.text = phase_name
+	turn_label.text  = "Turn %d — Player %d" % [turn, active_player]
 
 func update_chain_hud(links: Array) -> void:
-	## Rebuild the chain display
-	for child in _chain_hud.get_children():
+	if not chain_hud:
+		return
+	for child in chain_hud.get_children():
 		child.queue_free()
-
+	
+	var chain_links_container = chain_hud.get_node_or_null("ChainLinks")
+	if not chain_links_container:
+		return
+		
 	var x := 0.0
 	for link in links:
 		var cl: ChainLink = link
 		var lbl := Label.new()
-		lbl.text     = "CL%d\n%s" % [cl.chain_index, cl.effect.effect_name.left(10)]
+		lbl.text = "CL%d\n%s" % [cl.chain_index, cl.effect.effect_name.left(10)]
 		lbl.position = Vector2(x, 0)
-		lbl.size     = Vector2(60, 50)
+		lbl.size = Vector2(60, 50)
 		lbl.add_theme_font_size_override("font_size", 7)
 		lbl.modulate = Color(0.8, 0.6, 1.0)
-		_chain_hud.add_child(lbl)
+		chain_links_container.add_child(lbl)
 		x += 64.0
+
 
 # ─── ZoneManager Signal Handlers ─────────────────────────────────────────────
 
@@ -553,15 +461,12 @@ func _on_chain_link_resolved(link: ChainLink, was_negated: bool) -> void:
 func _on_chain_resolved(_links: Array) -> void:
 	update_chain_hud([])
 	clear_all_glows()
-	_pass_btn.visible = false
+	pass_button.visible = false
 func _on_priority_passed(to_player: Player) -> void:
-	print("BoardView: priority_passed to ", to_player.display_name,
-		" local=", players[0].display_name)
-	_turn_label.modulate = Color(1.0, 0.9, 0.3) if to_player == players[0] else Color(0.9, 0.4, 0.4)
+	turn_label.modulate = Color(1.0, 0.9, 0.3) if to_player == players[0] else Color(0.9, 0.4, 0.4)
 	# Show pass button only when local player holds priority on open chain
-	#_pass_btn.visible = (to_player == players[0] and not effect_stack.chain_is_empty())
-	_pass_btn.visible = (to_player == players[0] )
-	print("btn is ",_pass_btn.visible)
+	pass_button.visible = (to_player == players[0] )
+
 func _on_triggers_pending(triggers: Array) -> void:
 	## In a full game, show a popup. For now, auto-decline all optional triggers.
 	var choices := {}
@@ -608,7 +513,7 @@ func _on_card_clicked(view: CardView, card: CardInstance) -> void:
 				actions.append(CardTooltip.Action.ACTIVATE)
 		actions.append(CardTooltip.Action.INSPECT)
 
-	_tooltip.show_for(card, actions, view.global_position, view.size)
+	tooltip.show_for(card, actions, view.global_position, view.size)
 	card_clicked.emit(card, view)
 
 func _on_card_inspected(view: CardView, card: CardInstance) -> void:
@@ -617,7 +522,9 @@ func _on_card_inspected(view: CardView, card: CardInstance) -> void:
 
 func _on_empty_slot_clicked(zone_view: ZoneView) -> void:
 	# Check if we're waiting for zone selection
+	print(zone_view.zone_label)
 	if _pending_state == PendingState.AWAIT_ZONE_SELECTION:
+		print("AWAIT_ZONE_SELECTION")
 		_complete_zone_selection(zone_view)
 		return
 	
@@ -654,13 +561,13 @@ func _complete_zone_selection(zone_view: ZoneView) -> void:
 func _show_error(message: String) -> void:
 	print("Error: %s" % message)
 	# Optional: Show a temporary error label
-	if _turn_label:
-		var old_text = _turn_label.text
-		_turn_label.text = message
-		_turn_label.modulate = Color(1.0, 0.3, 0.3)
+	if turn_label:
+		var old_text = turn_label.text
+		turn_label.text = message
+		turn_label.modulate = Color(1.0, 0.3, 0.3)
 		await get_tree().create_timer(1.5).timeout
-		_turn_label.text = old_text
-		_turn_label.modulate = Color(0.7, 0.7, 0.7)
+		turn_label.text = old_text
+		turn_label.modulate = Color(0.7, 0.7, 0.7)
 # ─── Tooltip Action Routing ───────────────────────────────────────────────────
 
 func _on_tooltip_action(action: int, card: CardInstance) -> void:
@@ -915,13 +822,13 @@ func _cancel_pending() -> void:
 	_hide_cancel_hint()
 
 func _show_cancel_hint(text: String) -> void:
-	if _turn_label != null:
-		_turn_label.text    = text
-		_turn_label.modulate = Color(1.0, 0.8, 0.3)
+	if turn_label != null:
+		turn_label.text    = text
+		turn_label.modulate = Color(1.0, 0.8, 0.3)
 
 func _hide_cancel_hint() -> void:
-	if _turn_label != null:
-		_turn_label.modulate = Color(0.7, 0.7, 0.7)
+	if turn_label != null:
+		turn_label.modulate = Color(0.7, 0.7, 0.7)
 
 # ─── Keyboard Cancel ──────────────────────────────────────────────────────────
 

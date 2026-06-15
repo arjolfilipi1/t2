@@ -340,7 +340,7 @@ func _execute_move(
 	zone_changed.emit(to_zone)
 	if from_zone != null:
 		zone_changed.emit(from_zone)
-
+	
 func _remove_from_zone(card: CardInstance, zone: Zone) -> void:
 	if zone == null:
 		return  ## Card had no prior zone (initial placement)

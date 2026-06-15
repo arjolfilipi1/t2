@@ -217,11 +217,13 @@ func _draw_dashed_border(W: float, H: float) -> void:
 func _on_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT and _card_view == null:
+			print(zone_label,self.get_parent().name)
 			empty_slot_clicked.emit(self)
 
 func _on_mouse_entered() -> void:
 	if _card_view == null and not _is_drop_highlight:
-		modulate = Color(1.1, 1.1, 1.1)
+		
+		modulate = Color(1.7, 1.7, 1.7)
 
 func _on_mouse_exited() -> void:
 	modulate = Color.WHITE

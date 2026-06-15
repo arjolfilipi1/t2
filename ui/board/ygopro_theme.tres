@@ -1,0 +1,53 @@
+[gd_resource type="Theme" format=3 uid="uid://ygopro_theme_main"]
+
+[resource]
+
+# Default Font Settings
+default_font_size = 12
+
+# Label Colors
+label/colors/font_color = Color(0.95, 0.9, 0.7, 1)
+
+# Button Colors
+button/colors/font_color = Color(1, 1, 1, 1)
+button/colors/font_hover_color = Color(1, 0.9, 0.5, 1)
+button/colors/font_pressed_color = Color(0.8, 0.7, 0.3, 1)
+button/colors/font_disabled_color = Color(0.5, 0.5, 0.5, 1)
+
+# Button Styles
+[sub_resource type="StyleBoxFlat" id="button_normal"]
+bg_color = Color(0.15, 0.2, 0.35, 1)
+border_width_all = 1
+border_color = Color(0.4, 0.5, 0.7, 1)
+set_corner_radius_all = 4
+
+[sub_resource type="StyleBoxFlat" id="button_hover"]
+bg_color = Color(0.2, 0.28, 0.45, 1)
+border_width_all = 1
+border_color = Color(0.6, 0.7, 0.9, 1)
+set_corner_radius_all = 4
+
+[sub_resource type="StyleBoxFlat" id="button_pressed"]
+bg_color = Color(0.1, 0.14, 0.25, 1)
+border_width_all = 1
+border_color = Color(0.3, 0.4, 0.6, 1)
+set_corner_radius_all = 4
+
+button/styles/normal = SubResource("button_normal")
+button/styles/hover = SubResource("button_hover")
+button/styles/pressed = SubResource("button_pressed")
+
+# Panel Styles
+[sub_resource type="StyleBoxFlat" id="panel_dark"]
+bg_color = Color(0.05, 0.05, 0.1, 0.85)
+border_width_all = 1
+border_color = Color(0.3, 0.35, 0.5, 0.8)
+set_corner_radius_all = 6
+
+panel/styles/panel = SubResource("panel_dark")
+
+# Font Sizes
+theme_override_font_sizes/title_font_size = 16
+theme_override_font_sizes/large_font_size = 14
+theme_override_font_sizes/medium_font_size = 12
+theme_override_font_sizes/small_font_size = 10
