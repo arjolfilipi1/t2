@@ -380,7 +380,21 @@ func _on_phase_advance() -> void:
 # ──────────────────────────────────────────────────────────────────────────────
 # Board Click Handlers
 # ──────────────────────────────────────────────────────────────────────────────
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		var clicked_ui_nodes: Array[String] = []
+		get_ui_nodes_at_position(self, event.position, clicked_ui_nodes)
+		print("Clicked UI Nodes: ", clicked_ui_nodes)
 
+func get_ui_nodes_at_position(current_node: Node, mouse_pos: Vector2, results: Array[String]) -> void:
+	if current_node is Control and current_node.visible:
+		# Check if the global mouse position falls inside the control's rectangle
+		if current_node.get_global_rect().has_point(mouse_pos):
+			results.append(current_node.name)
+			
+	# Recursively check children to build the full list from top to bottom
+	for child in current_node.get_children():
+		get_ui_nodes_at_position(child, mouse_pos, results)
 func _on_card_clicked(card: CardInstance, _view: CardView) -> void:
 	print("TestBoard: Clicked → %s (zone=%s, atk=%d, def=%d)" % [
 		card.definition.card_name,

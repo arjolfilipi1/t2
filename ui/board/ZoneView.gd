@@ -50,10 +50,10 @@ const COLOR_BANISH_BG     := Color(0.22, 0.18, 0.10, 0.55)
 
 # ─── Child Nodes ──────────────────────────────────────────────────────────────
 
-var _bg:          ColorRect
+@onready var _bg:          ColorRect = $BG
 var _border:      Control       ## Custom-drawn dashed border
-var _label_node:  Label
-var _count_badge: Label
+@onready var _label_node:  Label = $ZoneLabel
+@onready  var _count_badge: Label = $CountBadge
 var _card_anchor: Control       ## CardView is parented here
 var _is_drop_highlight: bool = false
 
@@ -231,12 +231,7 @@ func _on_mouse_exited() -> void:
 # ─── Child Construction ───────────────────────────────────────────────────────
 
 func _build_children() -> void:
-	_bg = ColorRect.new()
-	_bg.name         = "BG"
-	_bg.size         = Vector2(SLOT_W, SLOT_H)
-	_bg.color        = COLOR_MONSTER_BG
-	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_bg)
+	
 
 	_card_anchor = Control.new()
 	_card_anchor.name           = "CardAnchor"
@@ -248,26 +243,6 @@ func _build_children() -> void:
 	_card_anchor.mouse_filter   = Control.MOUSE_FILTER_IGNORE
 	add_child(_card_anchor)
 
-	_label_node = Label.new()
-	_label_node.name         = "ZoneLabel"
-	_label_node.position     = Vector2(0, SLOT_H / 2.0 - 6)
-	_label_node.size         = Vector2(SLOT_W, 12)
-	_label_node.add_theme_font_size_override("font_size", 7)
-	_label_node.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_label_node.modulate     = Color(0.7, 0.7, 0.8, 0.7)
-	_label_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_label_node)
-
-	_count_badge = Label.new()
-	_count_badge.name         = "CountBadge"
-	_count_badge.position     = Vector2(SLOT_W - 22, SLOT_H - 16)
-	_count_badge.size         = Vector2(20, 14)
-	_count_badge.add_theme_font_size_override("font_size", 8)
-	_count_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_count_badge.modulate     = Color.WHITE
-	_count_badge.visible      = false
-	_count_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_count_badge)
 
 func _bg_color_for_zone() -> Color:
 	if zone == null:

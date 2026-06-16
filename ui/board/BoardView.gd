@@ -41,8 +41,32 @@ const ZoneViewScene = preload("res://ui/board/ZoneView.tscn")
 # ─── Zone Containers (to be populated dynamically) ────────────────────────
 @onready var p1_monster_zone: GridContainer = $Zones/P1/P1_Monsters
 @onready var p1_spell_zone: GridContainer = $Zones/P1/P1_Spells
+@onready var p1_field_spell: Control = $Zones/P1/P1_FieldSpell
+@onready var p1_extra_monster: Control = $Zones/P1/P1_ExtraMonster
+@onready var p1_graveyard_zone: Control = $Zones/P1/P1_GraveyardPile
+@onready var p1_banished: Control = $Zones/P1/P1_BanishedPile
+@onready var p1_deck: Control = $Zones/P1/P1_DeckPile
+@onready var p1_extra_deck: Control = $Zones/P1/P1_ExtraDeckPile
+
 @onready var p2_monster_zone: GridContainer = $Zones/P2/P2_Monsters
 @onready var p2_spell_zone: GridContainer = $Zones/P2/P2_Spells
+@onready var p2_field_spell: Control = $Zones/P2/P2_FieldSpell
+@onready var p2_extra_monster: Control = $Zones/P2/P2_ExtraMonster
+@onready var p2_graveyard_zone: Control = $Zones/P2/P2_GraveyardPile
+@onready var p2_banished: Control = $Zones/P2/P2_BanishedPile
+@onready var p2_deck: Control = $Zones/P2/P2_DeckPile
+@onready var p2_extra_deck: Control = $Zones/P2/P2_ExtraDeckPile
+#add the info bar buttons for click handling
+@onready var p1_deck_button: Button = $P1_InfoBar/P1_Deck
+#@onready var p1_extra_button: Button = $P1_InfoBar/P1_Extra
+@onready var p1_gy_button: Button = $P1_InfoBar/P1_Graveyard
+@onready var p1_banish_button: Button = $P1_InfoBar/P1_Banished
+
+@onready var p2_deck_button: Button = $P2_InfoBar/P2_Deck
+#@onready var p2_extra_button: Button = $P2_InfoBar/P2_Extra
+@onready var p2_gy_button: Button = $P2_InfoBar/P2_Graveyard
+@onready var p2_banish_button: Button = $P2_InfoBar/P2_Banished
+
 @onready var p1_graveyard: Button = $P1_InfoBar/P1_Graveyard
 @onready var p2_graveyard: Button = $P2_InfoBar/P2_Graveyard
 ## Player clicked a card (intent determined by current game state).
@@ -132,7 +156,7 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
 	print("p1_lp_label:",p1_lp_label)
 	#_build_field_background()
-
+	_connect_info_bar_buttons
 func _enter_tree() -> void:
 	print("te:p1_lp_label:",p1_lp_label)
 
@@ -169,28 +193,40 @@ func setup(
 	effect_stack.priority_passed.connect(_on_priority_passed)
 	effect_stack.triggers_pending.connect(_on_triggers_pending)
 	_build_zone_views_from_scene()
+
+
+func _clear_container(container: Control) -> void:
+	if container == null:
+		return
+	for child in container.get_children():
+		if child is ZoneView:
+			child.queue_free()
 # Create a new method to use scene containers
 func _build_zone_views_from_scene() -> void:
 	# Clear existing views if any
-	for child in p1_monster_zone.get_children():
-		if child is ZoneView:
-			child.queue_free()
-	for child in p1_spell_zone.get_children():
-		if child is ZoneView:
-			child.queue_free()
-	for child in p2_monster_zone.get_children():
-		if child is ZoneView:
-			child.queue_free()
-	for child in p2_spell_zone.get_children():
-		if child is ZoneView:
-			child.queue_free()
 	
 	for player in players:
 		var is_p1 := player == players[0]
 		var monster_grid = p1_monster_zone if is_p1 else p2_monster_zone
 		var spell_grid = p1_spell_zone if is_p1 else p2_spell_zone
+		var field_spell_container = p1_field_spell if is_p1 else p2_field_spell
+		var extra_monster_container = p1_extra_monster if is_p1 else p2_extra_monster
+		var gy_container = p1_graveyard_zone if is_p1 else p2_graveyard_zone
+		var banished_container = p1_banished if is_p1 else p2_banished
+		var deck_container = p1_deck if is_p1 else p2_deck
+		var extra_deck_container = p1_extra_deck if is_p1 else p2_extra_deck
+
 		var pid := "p%d" % player.player_id
-		
+		# Clear existing children
+		_clear_container(monster_grid)
+		_clear_container(spell_grid)
+		_clear_container(field_spell_container)
+		_clear_container(extra_monster_container)
+		_clear_container(gy_container)
+		_clear_container(banished_container)
+		_clear_container(deck_container)
+		_clear_container(extra_deck_container)
+
 		# Create 5 monster slot ZoneViews
 		for i in 5:
 			var zv := ZoneViewScene.instantiate()
@@ -207,9 +243,32 @@ func _build_zone_views_from_scene() -> void:
 			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
 			_slot_views["%s_main_spell_%d" % [pid, i]] = zv
 # ─── Zone View Construction ───────────────────────────────────────────────────
-
-
-
+		# Field Spell Zone
+		var fs_zv := ZoneViewScene.instantiate()
+		field_spell_container.add_child(fs_zv)
+		fs_zv.setup(zone_manager.field_spell_zone_of(player), 0, "FIELD")
+		fs_zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+		_slot_views["%s_field_spell_0" % pid] = fs_zv
+		# Extra Deck Pile
+		var extra_zv := ZoneViewScene.instantiate()
+		extra_deck_container.add_child(extra_zv)
+		extra_zv.setup(zone_manager.extra_deck_of(player), -1, "EXTRA")
+		_pile_views["%s_extra_deck" % pid] = extra_zv
+		# Graveyard Pile
+		var gy_zv := ZoneViewScene.instantiate()
+		gy_container.add_child(gy_zv)
+		gy_zv.setup(zone_manager.graveyard_of(player), -1, "GY")
+		_pile_views["%s_graveyard" % pid] = gy_zv
+		# Banished Pile
+		var ban_zv := ZoneViewScene.instantiate()
+		banished_container.add_child(ban_zv)
+		ban_zv.setup(zone_manager.banished_of(player), -1, "BANISH")
+		_pile_views["%s_banished" % pid] = ban_zv
+		# Deck Pile
+		var deck_zv := ZoneViewScene.instantiate()
+		deck_container.add_child(deck_zv)
+		deck_zv.setup(zone_manager.deck_of(player), -1, "DECK")
+		_pile_views["%s_deck" % pid] = deck_zv
 
 
 
@@ -846,6 +905,47 @@ func _zone_type_key(type: Zone.ZoneType) -> String:
 		Zone.ZoneType.EXTRA_MONSTER: return "extra_monster"
 		Zone.ZoneType.FIELD_SPELL:   return "field_spell"
 	return "unknown"
+func _connect_info_bar_buttons() -> void:
+	await get_tree().process_frame
+	# P1 buttons
+	if p1_deck_button:
+		print("deck")
+		p1_deck_button.pressed.connect(func(): _on_pile_clicked(players[0], "deck"))
+	#if p1_extra_button:
+		#p1_extra_button.pressed.connect(func(): _on_pile_clicked(players[0], "extra"))
+	if p1_gy_button:
+		p1_gy_button.pressed.connect(func(): _on_pile_clicked(players[0], "graveyard"))
+	if p1_banish_button:
+		p1_banish_button.pressed.connect(func(): _on_pile_clicked(players[0], "banished"))
+	
+	# P2 buttons
+	if p2_deck_button:
+		p2_deck_button.pressed.connect(func(): _on_pile_clicked(players[1], "deck"))
+	##if p2_extra_button:
+		#p2_extra_button.pressed.connect(func(): _on_pile_clicked(players[1], "extra"))
+	if p2_gy_button:
+		p2_gy_button.pressed.connect(func(): _on_pile_clicked(players[1], "graveyard"))
+	if p2_banish_button:
+		p2_banish_button.pressed.connect(func(): _on_pile_clicked(players[1], "banished"))
+
+func _on_pile_clicked(player: Player, pile_type: String) -> void:
+	print("Clicked on %s's %s pile" % [player.display_name, pile_type])
+	# You can implement a popup showing the pile contents here
+	var zone: Zone
+	match pile_type:
+		"deck":
+			zone = zone_manager.deck_of(player)
+		"extra":
+			zone = zone_manager.extra_deck_of(player)
+		"graveyard":
+			zone = zone_manager.graveyard_of(player)
+		"banished":
+			zone = zone_manager.banished_of(player)
+	
+	if zone:
+		print("  Contains %d cards" % zone.count())
+		# Emit signal to show pile viewer
+		# pile_view_requested.emit(player, pile_type, zone.get_cards())
 
 
 # ──────────────────────────────────────────────────────────────────────────────
