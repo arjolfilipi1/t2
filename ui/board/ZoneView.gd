@@ -119,16 +119,17 @@ func remove_card(animate: bool = true) -> void:
 	_label_node.visible = true
 
 	if animate:
-		view.animate_destroy(func():
-			if view.get_parent() == _card_anchor:
-				_card_anchor.remove_child(view)
-		)
+		_await_destroy_then_detach(view)
 	else:
 		if view.get_parent() == _card_anchor:
 			_card_anchor.remove_child(view)
 
 	queue_redraw()
-
+	
+func _await_destroy_then_detach(view: CardView) -> void:
+		await view.animate_destroy()
+		if view.get_parent() == _card_anchor:
+				_card_anchor.remove_child(view)
 ## Update the count badge (GY, deck, hand pile, etc.)
 func set_count(n: int) -> void:
 	if n > 0:

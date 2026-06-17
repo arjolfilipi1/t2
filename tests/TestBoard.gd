@@ -26,7 +26,7 @@
 extends Node2D
 
 # ─── Domain Objects ───────────────────────────────────────────────────────────
-
+var results_screen: Control
 var p1: Player
 var p2: Player
 var gd: GameDirector   ## owns zm, stack, tm internally
@@ -43,8 +43,13 @@ var tm:    TurnManager:
 
 var board: BoardView
 
+# ─── stats          ───────────────────────────────────────────────────────────
+var _cards_drawn: int = 0
+var _monsters_summoned: int = 0
+var _spells_activated: int = 0
+var _traps_activated: int = 0
+var _damage_dealt: int = 0
 # ─── Internal State ───────────────────────────────────────────────────────────
-
 var _demo_running := false
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -84,7 +89,6 @@ func _boot_ui() -> void:
 	add_child(board)
 	await get_tree().process_frame
 	board.setup(gd.zm, gd.stack, [p1, p2],gd)
-	print("bui",board.players)
 	board.card_clicked.connect(_on_card_clicked)
 	board.empty_zone_clicked.connect(_on_empty_zone_clicked)
 	board.phase_advance_requested.connect(_on_phase_advance)
@@ -93,9 +97,17 @@ func _boot_ui() -> void:
 	# Wire GameDirector signals to HUD
 	gd.phase_changed.connect(func(_name, _turn, _player): _update_hud())
 	gd.active_player_changed.connect(func(_p): _update_hud())
-	gd.game_over.connect(func(winner, _loser):
-		print("TestBoard: GAME OVER — %s wins!" % winner.display_name)
-	)
+	
+	const ResultsScene = preload("res://ui/results/ResultsScreen.tscn")
+	results_screen = ResultsScene.instantiate()
+	add_child(results_screen)
+	results_screen.hide()
+	results_screen.rematch_requested.connect(_on_rematch)
+	results_screen.menu_requested.connect(_on_menu)
+	gd.game_over.connect(_on_game_over)
+	gd.tm.card_drawn.connect(_track_card_drawn)
+	gd.card_summoned.connect(_track_summon)
+	gd.damage_dealt.connect(_track_damage)
 	gd.action_rejected.connect(func(action, result):
 		print("TestBoard: Action rejected — %s: %s" % [action.describe(), result.message])
 	)
@@ -457,7 +469,58 @@ func _update_hud() -> void:
 # ──────────────────────────────────────────────────────────────────────────────
 # Utilities
 # ──────────────────────────────────────────────────────────────────────────────
+func _get_cards_drawn_count() -> int:
+	return _cards_drawn
 
+func _get_monsters_summoned_count() -> int:
+	return _monsters_summoned
+
+func _get_spells_activated_count() -> int:
+	return _spells_activated
+
+func _get_traps_activated_count() -> int:
+	return _traps_activated
+
+func _get_damage_dealt() -> int:
+	return _damage_dealt
+
+# Increment these when actions happen (connect to GameDirector signals)
+func _track_card_drawn(player: Player, _card: CardInstance) -> void:
+	if player == p1:
+		_cards_drawn += 1
+
+func _track_summon(card: CardInstance, was_normal: bool) -> void:
+	if card.controller == p1:
+		_monsters_summoned += 1
+
+func _track_damage(amount: int, to_player: Player, from_battle: bool) -> void:
+	if to_player != p1:  # Damage dealt TO opponent
+		_damage_dealt += amount
+
+func _on_rematch() -> void:
+	# Reset the game
+	get_tree().reload_current_scene()
+
+func _on_menu() -> void:
+	# Go back to main menu (or just reload)
+	get_tree().reload_current_scene()
+
+
+# Add game over handler
+func _on_game_over(winner: Player, loser: Player) -> void:
+	print("Game Over! Winner: ", winner.display_name)
+	
+	# Collect stats (you can track more stats during gameplay)
+	var stats = {
+		"turn_count": tm.current_turn(),
+		"cards_drawn": _get_cards_drawn_count(),
+		"monsters_summoned": _get_monsters_summoned_count(),
+		"spells_activated": _get_spells_activated_count(),
+		"traps_activated": _get_traps_activated_count(),
+		"damage_dealt": _get_damage_dealt(),
+	}
+	
+	results_screen.show_results(winner, loser, stats)
 func _first_on_field(player: Player) -> CardInstance:
 	var monsters := zm.monsters_on_field(player)
 	return monsters[0] if not monsters.is_empty() else null

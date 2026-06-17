@@ -1,0 +1,167 @@
+[gd_scene load_steps=9 format=3 uid="uid://5wmv41vexndy"]
+
+[ext_resource type="Script" path="res://ui/results/ResultsScreen.gd" id="1_result_script"]
+[ext_resource type="FontFile" uid="uid://dlm1gwp85kbdb" path="res://assets/fonts/yugioh_title.ttf" id="2_font_title"]
+[ext_resource type="FontFile" uid="uid://mn8q0yncj0ox" path="res://assets/fonts/yugioh_text.ttf" id="3_font_text"]
+[ext_resource type="Theme" uid="uid://hfn5quqa0v20" path="res://ui/themes/ygopro_theme.tres" id="4_o1vun"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+bg_color = Color(0.05, 0.05, 0.1, 0.95)
+border_color = Color(0.6, 0.7, 0.9, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_button_hover"]
+bg_color = Color(0.25, 0.3, 0.45, 1)
+border_color = Color(0.6, 0.7, 0.9, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_button_normal"]
+bg_color = Color(0.15, 0.2, 0.35, 1)
+border_color = Color(0.4, 0.5, 0.7, 1)
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_77abc"]
+gravity = Vector3(0, 98, 0)
+
+[node name="ResultsScreen" type="Control"]
+z_index = 5
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 659.0
+offset_top = 415.0
+offset_right = 659.0
+offset_bottom = 415.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_result_script")
+
+[node name="Overlay" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0)
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -200.0
+offset_right = 300.0
+offset_bottom = 200.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+alignment = 1
+
+[node name="VictoryLabel" type="Label" parent="Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+theme_override_fonts/font = ExtResource("2_font_title")
+theme_override_font_sizes/font_size = 48
+text = "VICTORY!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="DefeatLabel" type="Label" parent="Panel/VBoxContainer"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.5, 0.5, 0.7, 1)
+theme_override_fonts/font = ExtResource("2_font_title")
+theme_override_font_sizes/font_size = 48
+text = "DEFEAT"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="WinnerName" type="Label" parent="Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.9, 0.9, 0.7, 1)
+theme_override_fonts/font = ExtResource("3_font_text")
+theme_override_font_sizes/font_size = 24
+text = "You Win!"
+horizontal_alignment = 1
+
+[node name="StatsContainer" type="HBoxContainer" parent="Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+alignment = 1
+
+[node name="StatsLeft" type="VBoxContainer" parent="Panel/VBoxContainer/StatsContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="StatsRight" type="VBoxContainer" parent="Panel/VBoxContainer/StatsContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ButtonContainer" type="HBoxContainer" parent="Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+alignment = 1
+
+[node name="RematchButton" type="Button" parent="Panel/VBoxContainer/ButtonContainer"]
+custom_minimum_size = Vector2(120, 40)
+layout_mode = 2
+theme = ExtResource("4_o1vun")
+theme_override_font_sizes/font_size = 14
+theme_override_styles/hover = SubResource("StyleBox_button_hover")
+theme_override_styles/normal = SubResource("StyleBox_button_normal")
+text = "REMATCH"
+
+[node name="MenuButton" type="Button" parent="Panel/VBoxContainer/ButtonContainer"]
+custom_minimum_size = Vector2(120, 40)
+layout_mode = 2
+theme = ExtResource("4_o1vun")
+theme_override_font_sizes/font_size = 14
+theme_override_styles/hover = SubResource("StyleBox_button_hover")
+theme_override_styles/normal = SubResource("StyleBox_button_normal")
+text = "MENU"
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+
+[node name="Particles" type="GPUParticles2D" parent="."]
+visible = false
+emitting = false
+amount = 100
+lifetime = 2.0
+one_shot = true
+preprocess = 0.5
+speed_scale = 0.5
+explosiveness = 0.8
+draw_order = 0
+
+[node name="ParticlesDrawPass1" type="ParticleProcessMaterial" parent="Particles"]
+_import_path = NodePath("")
+unique_name_in_owner = false
+process_mode = 0
+process_priority = 0
+process_physics_priority = 0
+process_thread_group = 0
+physics_interpolation_mode = 0
+auto_translate_mode = 0
+editor_description = ""
+process_material = SubResource("ParticleProcessMaterial_77abc")
+script = null

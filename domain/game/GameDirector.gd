@@ -35,6 +35,14 @@ signal card_summoned(card: CardInstance, was_normal: bool)
 ## Battle damage was dealt.
 signal damage_dealt(amount: int, to_player: Player, from_battle: bool)
 
+## An attack was just declared and validated — fires BEFORE damage is
+## calculated, so the UI can play the attack lunge animation first and only
+## apply destruction/LP feedback once that animation completes.
+signal attack_declared(attacker: CardInstance, target: CardInstance)
+## Battle damage has been calculated and applied — carries the full
+## BattleResult so the UI can animate destruction/survival correctly.
+signal battle_resolved(result: RuleEngine.BattleResult)
+
 ## The game has ended.
 signal game_over(winner: Player, loser: Player)
 
@@ -72,7 +80,34 @@ var _next_action_id: int = 0
 
 ## Set when GameDirector is waiting for the player to make a UI decision.
 var _pending_input: InputRequest = null
-
+# ─── Auto-Advance ──────────────────────────────────────────────────────────────
+##
+## Automatically advances the phase when the active player has no possible
+## legal action left to take. This only applies to phases where waiting for
+## input is pointless — DRAW, STANDBY, BATTLE_START (instant), and BATTLE_STEP
+## once no attacker has a legal target remaining.
+##
+## Main Phase 1 and Main Phase 2 are EXCLUDED for the human player by design:
+## even if RuleEngine reports zero legal actions, the human should still see
+## the phase and press End Phase themselves. Auto-advancing Main Phase would
+## be confusing — "did my turn just skip past me?"
+##
+## For the AI, Main Phase is driven entirely by AIController's own planner,
+## which explicitly calls advance_phase() once it has finished acting — so
+## this method does not need to (and should not) auto-advance Main Phase for
+## the AI either; doing so would race against the AI's action queue.
+## Phases that are always safe to auto-advance for ANY player, since they
+## never require a human decision.
+const _ALWAYS_AUTO_ADVANCE := [
+		TurnContext.Phase.STANDBY,
+		TurnContext.Phase.BATTLE_START,
+		TurnContext.Phase.BATTLE_END,
+]
+## Phases that are auto-advanced only when the active player has no legal
+## action remaining. Main Phases are deliberately NOT in this list.
+const _CONDITIONAL_AUTO_ADVANCE := [
+		TurnContext.Phase.BATTLE_STEP,
+]
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
 ## Call once after add_child(). Players must already have decks loaded via
@@ -146,7 +181,7 @@ func submit_action(action: GameAction) -> bool:
 
 	# Post-execution hooks
 	_post_action(action)
-
+	_try_auto_advance()
 	return true
 
 ## Convenience: submit and return the RuleResult without executing.
@@ -274,14 +309,66 @@ func _post_action(action: GameAction) -> void:
 		card_summoned.emit(action.card, true)
 	elif action is GameAction.DeclareAttackAction:
 		_try_advance_to_damage_step()
-		# stack is now open (priority window for attack response)
-		pass
+		attack_declared.emit(action.attacker, action.target)
+	elif action is GameAction.ResolveBattleDamageAction:
+		var result := RuleEngine.resolve_battle(action.attacker, action.target)
+		battle_resolved.emit(result)
+func _try_auto_advance() -> void:
+	if tm == null or tm.context == null:
+		return
+	if not stack.is_idle():
+		return   ## Never advance while a chain is open or resolving
+
+	var phase  := tm.context.phase
+	var player := tm.active_player()
+
+	# Draw phase has no human decision point at all — TurnManager already
+	# executes the draw synchronously, so by the time phase_changed fires
+	# there is nothing left to wait for.
+	if phase == TurnContext.Phase.DRAW:
+		_queue_auto_advance(player)
+		return
+
+	if phase in _ALWAYS_AUTO_ADVANCE:
+		_queue_auto_advance(player)
+		return
+
+	if phase in _CONDITIONAL_AUTO_ADVANCE:
+		if not _has_any_legal_action(player, phase):
+			_queue_auto_advance(player)
+		return
+
+	# MAIN_1 / MAIN_2 / END: never auto-advance here.
+	# END already passes the turn on its own via TurnManager._pass_turn().
+
+## Defers the actual advance_phase() call by one frame.
+## This avoids advancing mid-signal-emission, which would re-enter
+## TurnManager while it is still finishing the current phase transition.
+func _queue_auto_advance(player: Player) -> void:
+	call_deferred("_do_auto_advance", player)
+
+func _do_auto_advance(player: Player) -> void:
+	if tm == null or tm.context == null:
+		return
+	if not stack.is_idle():
+		return   ## State may have changed since this was queued — re-check
+	advance_phase(player)
+
+## True if `player` has at least one legal action available in `phase`.
+## Used only for the conditional auto-advance phases (currently BATTLE_STEP).
+func _has_any_legal_action(player: Player, phase: TurnContext.Phase) -> bool:
+	match phase:
+		TurnContext.Phase.BATTLE_STEP:
+			var la := RuleEngine.get_all_legal_actions(player, zm, tm.context, stack)
+			return not la.can_attack.is_empty()
+		_:
+			return true   ## Unknown phase — be conservative, don't auto-advance
 
 # ─── Signal Handlers ──────────────────────────────────────────────────────────
 
 func _on_phase_changed(_old: TurnContext.Phase, _new: TurnContext.Phase, ctx: TurnContext) -> void:
 	phase_changed.emit(ctx.phase_name(), tm.current_turn(), tm.active_player())
-
+	#_try_auto_advance()
 func _on_active_player_changed(player: Player) -> void:
 	active_player_changed.emit(player)
 
@@ -296,7 +383,7 @@ func _on_card_drawn(player: Player, _card: CardInstance) -> void:
 func _on_stack_idle() -> void:
 	## Chain fully resolved — check if we should auto-advance to damage step
 	_try_advance_to_damage_step()
-
+	_try_auto_advance()
 func _on_triggers_pending(triggers: Array) -> void:
 	## Ask the local player about optional triggers via InputRequest
 	var local_triggers := triggers.filter(func(t: PendingTrigger) -> bool:

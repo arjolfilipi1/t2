@@ -367,7 +367,7 @@ func kill_all_tweens() ->void:
 	
 ## Animate this card moving to a new global position.
 ## Called by BoardView after it repositions the card's parent container.
-func animate_move_to(target_global: Vector2) -> void:
+func animate_move_to(target_global: Vector2) -> Signal:
 	var start := global_position
 	var tw    := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
@@ -375,18 +375,17 @@ func animate_move_to(target_global: Vector2) -> void:
 	tw.tween_method(func(t: float):
 		global_position = start.lerp(target_global, t)
 	, 0.0, 1.0, MOVE_DURATION)
-
+	return tw.finished
 ## Destruction burst: scale down and fade, then call done_callback.
-func animate_destroy(done_callback: Callable) -> void:
+func animate_destroy() -> Signal:
 	var tw := create_tween()
 	tw.set_parallel(true)
 	tw.tween_property(self, "modulate:a", 0.0, 0.35)
 	tw.tween_property(self, "scale", Vector2(1.4, 1.4), 0.2)
 	tw.chain().tween_property(self, "scale", Vector2(0.0, 0.0), 0.15)
-	tw.chain().tween_callback(done_callback)
-
+	return tw.finished
 ## Summon pop-in: start slightly scaled down, bounce up.
-func animate_summon() -> void:
+func animate_summon() -> Signal:
 	kill_all_tweens()
 	_is_hovered = false
 	scale = Vector2(0.6, 0.6)
@@ -398,6 +397,97 @@ func animate_summon() -> void:
 	tw.tween_property(self, "scale", Vector2.ONE, 0.3)
 	tw.tween_property(self, "modulate:a", 1.0, 0.2)
 	_tween = tw
+	return tw.finished
+	
+# ─── Attack Animation ─────────────────────────────────────────────────────────
+
+## Lunges toward `target_global`, holds briefly (impact frame), then springs
+## back to its original position. Used for the attacking card during the
+## damage step. Returns "finished" so the caller can sequence destruction
+## or LP damage feedback right after impact.
+func animate_attack_lunge(target_global: Vector2) -> Signal:
+	var home      := global_position
+	var direction := (target_global - home)
+	## Lunge 60% of the way to the target, not all the way — the card
+	## should look like it's striking, not swapping places.
+	var lunge_pos := home + direction * 0.6
+
+	var tw := create_tween()
+	tw.set_ease(Tween.EASE_OUT)
+	tw.set_trans(Tween.TRANS_QUAD)
+	tw.tween_property(self, "global_position", lunge_pos, 0.18)
+	tw.tween_property(self, "scale", Vector2(1.12, 1.12), 0.06)
+	## Brief hold at impact
+	tw.tween_interval(0.08)
+	tw.tween_property(self, "global_position", home, 0.22) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.parallel().tween_property(self, "scale", Vector2.ONE, 0.22)
+	return tw.finished
+
+## Quick white flash + shake — used on the card that TAKES damage in battle
+## (whether or not it is destroyed afterward). Call this on the defender
+## simultaneously with the attacker's lunge for simultaneous impact.
+func animate_take_hit() -> Signal:
+	var home := position
+	var tw   := create_tween()
+	tw.set_parallel(false)
+
+	## Flash white via modulate spike
+	tw.tween_property(self, "modulate", Color(2.0, 2.0, 2.0), 0.05)
+	tw.tween_property(self, "modulate", Color.WHITE, 0.10)
+
+	## Shake — small left-right jitter
+	var shake_tw := create_tween()
+	shake_tw.set_parallel(false)
+	for i in 4:
+		var offset := Vector2((4.0 if i % 2 == 0 else -4.0), 0)
+		shake_tw.tween_property(self, "position", home + offset, 0.03)
+	shake_tw.tween_property(self, "position", home, 0.03)
+
+	return tw.finished
+
+# ─── Effect Activation / Resolution Animation ─────────────────────────────────
+
+## Played when this card's effect is pushed onto the chain (activation).
+## A bright outward pulse distinct from the standing CHAIN_LINK glow —
+## marks the *moment* of activation rather than the held state while it
+## sits on the chain.
+func animate_effect_activate() -> Signal:
+	## Reuse the glow rect for a one-shot bright pulse on top of whatever
+	## standing glow state is already set.
+	var original_state := glow_state
+	set_glow(GlowState.CHAIN_LINK)
+
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(self, "scale", Vector2(1.15, 1.15), 0.12) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.chain().tween_property(self, "scale", Vector2.ONE, 0.15)
+
+	## Card itself does a brief glow-flash via modulate, independent of GlowState
+	var flash_tw := create_tween()
+	flash_tw.tween_property(self, "modulate", Color(1.3, 1.3, 1.3), 0.08)
+	flash_tw.tween_property(self, "modulate", Color.WHITE, 0.12)
+
+	return tw.finished
+
+## Played when this card's chain link resolves. Distinct from activation —
+## a soft outward ring rather than a scale pulse, signalling "effect has
+## taken place" rather than "effect has been declared".
+func animate_effect_resolve() -> Signal:
+	var ring := _ResolveRing.new()
+	ring.size     = Vector2(CARD_W, CARD_H)
+	ring.position = Vector2.ZERO
+	add_child(ring)
+
+	var tw := create_tween()
+	tw.tween_method(func(t: float):
+		ring.progress = t
+		ring.queue_redraw()
+	, 0.0, 1.0, 0.4)
+	tw.tween_callback(func(): ring.queue_free())
+
+	return tw.finished
 # ─── Selection ────────────────────────────────────────────────────────────────
 
 func set_selected(selected: bool) -> void:
@@ -467,3 +557,23 @@ func _attribute_color(attr: CardDefinition.Attribute) -> Color:
 func _to_string() -> String:
 	var name := card.definition.card_name if card else "empty"
 	return "CardView(%s)" % name
+# ──────────────────────────────────────────────────────────────────────────────
+# Inner class: expanding ring drawn for animate_effect_resolve()
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _ResolveRing extends Control:
+	## 0.0 → 1.0 animation progress, driven by the tween in animate_effect_resolve().
+	var progress: float = 0.0
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var cx := w / 2.0
+		var cy := h / 2.0
+		var max_radius :float = max(w, h) * 0.75
+
+		var radius := max_radius * progress
+		var alpha  := 1.0 - progress   ## fades out as it expands
+		var color  := Color(0.85, 0.65, 1.0, alpha * 0.8)   ## soft violet — resolution colour
+
+		draw_arc(Vector2(cx, cy), radius, 0, TAU, 32, color, 3.0, true)

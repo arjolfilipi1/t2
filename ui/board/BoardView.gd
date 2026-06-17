@@ -134,6 +134,14 @@ var _pending_targets:     Array[CardInstance] = []
 var _targets_needed:      int           = 0
 var _pending_action_type: String = "" # "summon", "set", "activate"
 var _pending_slot_callback: Callable = Callable() # Called with selected slot index
+# ─── Animation Queue ──────────────────────────────────────────────────────────
+## All card animations — moves, destruction, summon, attack, effect activation
+## and resolution — are routed through this queue so they always play in
+## strict sequence and never visually overlap, regardless of how quickly the
+## underlying domain signals fire.
+var anim_queue: AnimationQueue = null
+
+
 # ─── View Maps ────────────────────────────────────────────────────────────────
 
 ## ZoneView for each slotted zone slot: key = "p1_main_monster_0" etc.
@@ -154,11 +162,8 @@ var _selected_view: CardView = null
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
-	print("p1_lp_label:",p1_lp_label)
 	#_build_field_background()
 	_connect_info_bar_buttons
-func _enter_tree() -> void:
-	print("te:p1_lp_label:",p1_lp_label)
 
 func setup(
 		zm:          ZoneManager,
@@ -173,7 +178,7 @@ func setup(
 	print(players)
 	game_director = gd
 	local_player  = player_list[0]
-
+	_build_animation_queue()
 	if pass_button:
 		pass_button.pressed.connect(func():pass_priority_requested.emit())
 	if end_button:
@@ -193,7 +198,10 @@ func setup(
 	effect_stack.priority_passed.connect(_on_priority_passed)
 	effect_stack.triggers_pending.connect(_on_triggers_pending)
 	_build_zone_views_from_scene()
-
+# Connect to GameDirector for battle animation timing
+	if game_director != null:
+			game_director.attack_declared.connect(_on_attack_declared)
+			game_director.battle_resolved.connect(_on_battle_resolved)
 
 func _clear_container(container: Control) -> void:
 	if container == null:
@@ -305,8 +313,8 @@ func destroy_card_view(card: CardInstance) -> void:
 		return
 	var view: CardView = _card_views[card.instance_id]
 	_card_views.erase(card.instance_id)
-	view.animate_destroy(func(): view.queue_free())
-
+	anim_queue.enqueue(func() -> Signal: return view.animate_destroy(), "destroy_view")
+	anim_queue.enqueue_callback(func(): view.queue_free(), "free_view")
 # ─── Zone → ZoneView Lookup ───────────────────────────────────────────────────
 
 func get_slot_view(card: CardInstance) -> ZoneView:
@@ -442,32 +450,26 @@ func _on_card_moved(
 	reason: ZoneManager.MoveReason
 ) -> void:
 	var view := get_or_create_card_view(card)
-	view.kill_all_tweens()
-	if _from != null and _from.zone_type ==  Zone.ZoneType.HAND:
-		if view.get_parent() ==self:
-			remove_child(view)
-		refresh_hand(_from.owner)
-	# Flip logic
-	match to_zone.zone_type:
-		Zone.ZoneType.GRAVEYARD, Zone.ZoneType.HAND:
-			if to_zone.zone_type == Zone.ZoneType.HAND and to_zone.owner != players[0]:
-				view.flip_to(false)
-			else:
+
+	# Flip logic — enqueued so it never overlaps a still-playing prior animation
+	anim_queue.enqueue_callback(func():
+		match to_zone.zone_type:
+			Zone.ZoneType.GRAVEYARD, Zone.ZoneType.HAND:
 				view.flip_to(true)
-		Zone.ZoneType.DECK, Zone.ZoneType.EXTRA_DECK:
-			view.flip_to(false)
-		Zone.ZoneType.MAIN_MONSTER, Zone.ZoneType.EXTRA_MONSTER, Zone.ZoneType.MAIN_SPELL:
-			if reason == ZoneManager.MoveReason.SET:
+			Zone.ZoneType.DECK, Zone.ZoneType.EXTRA_DECK:
 				view.flip_to(false)
-			elif reason in [ZoneManager.MoveReason.NORMAL_SUMMON,
-							ZoneManager.MoveReason.SPECIAL_SUMMON,
-							ZoneManager.MoveReason.FLIP_SUMMON]:
-				view.flip_to(true)
+			Zone.ZoneType.MAIN_MONSTER, Zone.ZoneType.EXTRA_MONSTER, Zone.ZoneType.MAIN_SPELL:
+				if reason == ZoneManager.MoveReason.SET:
+					view.flip_to(false)
+				elif reason in [ZoneManager.MoveReason.NORMAL_SUMMON,
+								ZoneManager.MoveReason.SPECIAL_SUMMON,
+								ZoneManager.MoveReason.FLIP_SUMMON]:
+					view.flip_to(true)
+	, "flip")
 
 	# Remove from old zone view
 	for zv in _slot_views.values():
 		if zv.get_card_view() == view:
-			view.kill_all_tweens()
 			zv.remove_card(false)
 			break
 	for zv in _pile_views.values():
@@ -475,14 +477,23 @@ func _on_card_moved(
 			zv.remove_card(false)
 			break
 
-	# Place in new zone view
+	# Place in new zone view — placement itself is instant (re-parenting),
+	# but the resulting summon/move animation is queued below.
 	if to_zone.zone_type in Zone.FIELD_ZONE_TYPES:
 		var pid   := "p%d" % card.controller.player_id
 		var slot  := card.slot_index
 		var key   := "%s_%s_%d" % [pid, _zone_type_key(to_zone.zone_type), slot]
 		var zv: ZoneView = _slot_views.get(key, null)
 		if zv != null:
-			zv.place_card(view)
+			zv.place_card(view, false)   ## false = skip the built-in instant pop
+			var is_summon := reason in [
+				ZoneManager.MoveReason.NORMAL_SUMMON,
+				ZoneManager.MoveReason.SPECIAL_SUMMON,
+				ZoneManager.MoveReason.FLIP_SUMMON,
+				ZoneManager.MoveReason.SET,
+			]
+			if is_summon:
+				anim_queue.enqueue(func() -> Signal: return view.animate_summon(), "summon")
 	elif to_zone.zone_type in [Zone.ZoneType.GRAVEYARD, Zone.ZoneType.BANISHED,
 								Zone.ZoneType.DECK, Zone.ZoneType.EXTRA_DECK]:
 		var pv: ZoneView = _pile_views.get(str(to_zone.zone_id), null)
@@ -507,15 +518,17 @@ func _on_zone_changed(zone: Zone) -> void:
 # ─── EffectStack Signal Handlers ──────────────────────────────────────────────
 
 func _on_chain_link_pushed(link: ChainLink) -> void:
-	var view = _card_views.get(link.source_card.instance_id, null)
+	var view := _card_views.get(link.source_card.instance_id, null)
 	if view:
-		view.set_glow(CardView.GlowState.CHAIN_LINK)
+		anim_queue.enqueue(func() -> Signal: return view.animate_effect_activate(), "activate")
 	update_chain_hud(effect_stack.links)
 
 func _on_chain_link_resolved(link: ChainLink, was_negated: bool) -> void:
-	var view = _card_views.get(link.source_card.instance_id, null)
+	var view := _card_views.get(link.source_card.instance_id, null)
 	if view:
-		view.set_glow(CardView.GlowState.NONE)
+		if not was_negated:
+			anim_queue.enqueue(func() -> Signal: return view.animate_effect_resolve(), "resolve")
+		anim_queue.enqueue_callback(func(): view.set_glow(CardView.GlowState.NONE), "clear_glow")
 
 func _on_chain_resolved(_links: Array) -> void:
 	update_chain_hud([])
@@ -532,7 +545,51 @@ func _on_triggers_pending(triggers: Array) -> void:
 	for t in triggers:
 		choices[t] = false
 	effect_stack.confirm_optional_triggers(choices)
+# ─── GameDirector Battle Signal Handlers ──────────────────────────────────────
 
+## Fires the instant the attack is validated, BEFORE damage is calculated.
+## Plays the attacker's lunge and the defender's hit-flash in parallel, and
+## ONLY THEN lets the queue continue to whatever destruction/LP feedback
+## _on_battle_resolved enqueues — guaranteeing the player sees the strike
+## before seeing its outcome.
+func _on_attack_declared(attacker: CardInstance, target: CardInstance) -> void:
+	var attacker_view := _card_views.get(attacker.instance_id, null)
+	if attacker_view == null:
+		return
+
+	if target == null:
+		## Direct attack — lunge toward the opponent's LP display area
+		var lp_anchor := p2_lp_label if attacker.controller == players[0] else p1_lp_label
+		anim_queue.enqueue(
+			func() -> Signal: return attacker_view.animate_attack_lunge(lp_anchor.global_position),
+			"attack_lunge_direct"
+		)
+		return
+
+	var target_view := _card_views.get(target.instance_id, null)
+	if target_view == null:
+		return
+
+	var target_center :Vector2= target_view.global_position + target_view.size / 2.0
+	anim_queue.enqueue_parallel([
+		func() -> Signal: return attacker_view.animate_attack_lunge(target_center),
+		func() -> Signal: return target_view.animate_take_hit(),
+	], "attack_clash")
+func _build_animation_queue() -> void:
+		anim_queue = AnimationQueue.new()
+		add_child(anim_queue)
+## Fires once LP damage and destruction have actually been applied to the
+## domain. The destroyed-card visuals are NOT animated here — ZoneManager's
+## move to the Graveyard (triggered inside ResolveBattleDamageAction.execute)
+## already fires card_moved → _on_card_moved before this signal arrives,
+## which enqueues that card's flip/placement animation. Animating destruction
+## a second time here would duplicate it. This handler only needs to push
+## the LP bar refresh into the queue so it lands after the clash visually.
+func _on_battle_resolved(_result: RuleEngine.BattleResult) -> void:
+	anim_queue.enqueue_callback(func():
+		update_lp(players[0], players[0].life_points)
+		update_lp(players[1], players[1].life_points)
+	, "lp_refresh")
 # ─── Input Handlers ───────────────────────────────────────────────────────────
 
 func _on_card_clicked(view: CardView, card: CardInstance) -> void:
