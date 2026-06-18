@@ -136,7 +136,7 @@ func push(
 	state = StackState.OPEN_WINDOW
 
 	chain_link_pushed.emit(link)
-
+	_update_chain_state(true) # ← Add this
 	# ── Mark once-per-turn usage ───────────────────────────────────────────────
 
 	if effect.once_per_turn:
@@ -271,7 +271,7 @@ func evaluate_triggers(event: GameEvent, zone_manager: ZoneManager) -> void:
 func _begin_resolution() -> void:
 	assert(state == StackState.OPEN_WINDOW)
 	state = StackState.RESOLVING
-
+	_update_chain_state(true) # Still open during resolution
 	# Resolve LIFO — pop from the back
 	while not links.is_empty():
 		var link: ChainLink = links.pop_back()
@@ -291,6 +291,7 @@ func _begin_resolution() -> void:
 	priority_holder = turn_player
 	#if _pending_triggers.is_empty():
 	stack_idle.emit()
+	_update_chain_state(false) # ← Add this
 	# If _pending_triggers is not empty, the next evaluate_triggers call
 	# will handle them (GameDirector drives this loop)
 func _send_to_gy_after_resolution(link:ChainLink) -> void:
@@ -565,6 +566,20 @@ func set_turn_player(player:Player):
 	turn_player = player
 	if state == StackState.IDLE:
 		priority_holder = player
+func _update_chain_state(open: bool) -> void:
+	# Find TurnManager and update context
+	var tm = _get_turn_manager()
+	if tm and tm.context:
+		tm.context.chain_open = open
+
+func _get_turn_manager() -> TurnManager:
+	# Find TurnManager in the tree
+	var parent = get_parent()
+	while parent:
+		if parent is GameDirector:
+			return parent.tm
+		parent = parent.get_parent()
+	return null
 # ─── Debug ────────────────────────────────────────────────────────────────────
 
 func debug_print_chain() -> void:

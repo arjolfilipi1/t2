@@ -165,8 +165,8 @@ func _populate_decks() -> void:
 		CardLibrary._make_pot_of_greed(),
 		#_spell_def(&"pot_greed",   "Pot of Greed",      CardDefinition.SpellType.NORMAL),
 		_spell_def(&"change_heart","Change of Heart",   CardDefinition.SpellType.NORMAL),
-		_trap_def(&"mirror_force", "Mirror Force",      CardDefinition.TrapType.NORMAL),
-		_trap_def(&"trap_hole",    "Trap Hole",         CardDefinition.TrapType.NORMAL),
+		CardLibrary._make_test_magician(),
+		CardLibrary._make_test_magician(),
 	]
 
 	var p1_cards: Array[CardInstance] = []

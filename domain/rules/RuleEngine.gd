@@ -32,7 +32,10 @@ static func can_normal_summon(
 	if not ctx.is_main_phase():
 		return RuleResult.fail(RuleResult.Reason.WRONG_PHASE,
 			"Normal summon only allowed during Main Phase.")
-
+  # ── Chain State ──────────────────────────────────────────────────────────
+	if ctx.chain_open:
+		return RuleResult.fail(RuleResult.Reason.CHAIN_OPEN,
+			"Cannot summon while a chain is open.")
 	if ctx.turn_player != player:
 		return RuleResult.fail(RuleResult.Reason.NOT_YOUR_TURN,
 			"Only the turn player can normal summon.")
@@ -158,7 +161,9 @@ static func can_set(
 	if not ctx.is_main_phase():
 		return RuleResult.fail(RuleResult.Reason.WRONG_PHASE,
 			"Cards can only be set during the Main Phase.")
-
+	if ctx.chain_open: # ← Add this
+		return RuleResult.fail(RuleResult.Reason.CHAIN_OPEN,
+			"Cannot set cards while a chain is open.")
 	if ctx.turn_player != player:
 		return RuleResult.fail(RuleResult.Reason.NOT_YOUR_TURN)
 
@@ -387,7 +392,6 @@ static func can_activate_effect(
 	ctx:          TurnContext,
 	stack:        EffectStack
 ) -> RuleResult:
-	print("\n Checking activation for:",card.definition.card_name,":",effect_index)
 	
 	# ── Basic guards ──────────────────────────────────────────────────────────
 	if card.definition.effects.is_empty():
@@ -409,7 +413,11 @@ static func can_activate_effect(
 		print("not your prio")
 		return RuleResult.fail(RuleResult.Reason.NOT_YOUR_PRIORITY,
 			"You don't hold priority.")
-
+	if ctx.chain_open and not stack.chain_is_empty():
+		# Can activate effects only if you have priority
+		if stack.priority_holder != player:
+			return RuleResult.fail(RuleResult.Reason.CHAIN_OPEN,
+				"Cannot activate while chain is open and you don't have priority.")
 	# ── Spell speed ───────────────────────────────────────────────────────────
 	if not stack.chain_is_empty():
 		var min_speed := stack.minimum_spell_speed()
@@ -456,7 +464,7 @@ static func can_activate_effect(
 	if not eff.chain_condition.is_null() and not stack.chain_is_empty():
 		var top := stack.top_link()
 		if not eff.chain_condition.call(top):
-			print("conditions not met")
+			print("conditions not met for ",card.definition.card_name)
 			return RuleResult.fail(RuleResult.Reason.CONDITIONS_NOT_MET,
 				"This effect cannot be chained to that effect.")
 	# ── Once-per-turn-per-player ──────────────────────────────────────────────
@@ -557,7 +565,9 @@ static func can_change_battle_position(
 	if not ctx.is_main_phase():
 		return RuleResult.fail(RuleResult.Reason.WRONG_PHASE,
 			"Can only change battle position during Main Phase.")
-
+	if ctx.chain_open: # ← Add this
+		return RuleResult.fail(RuleResult.Reason.CHAIN_OPEN,
+			"Cannot change position while a chain is open.")
 	if ctx.turn_player != player:
 		return RuleResult.fail(RuleResult.Reason.NOT_YOUR_TURN)
 
@@ -607,8 +617,6 @@ static func get_all_legal_actions(
 		if can_set(card, player, zm, ctx).valid:
 			la.can_set.append(card)
 		var activatable := get_activatable_effects(card, player, zm, ctx, stack)
-		if card.definition.card_name == "Ash blossom & Joyous Spring":
-			print("ash is ",activatable)
 		if not activatable.is_empty():
 			la.can_activate[card] = activatable
 

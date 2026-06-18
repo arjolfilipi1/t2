@@ -149,3 +149,96 @@ func _make_sangan() -> CardDefinition:
 
 	d.effects = [eff]
 	return d
+func _make_test_magician() -> CardDefinition:
+	var d := CardDefinition.new()
+	d.card_id      = &"test_magician"
+	d.card_name    = "Test Magician"
+	d.card_type    = CardDefinition.CardType.MONSTER
+	d.attribute    = CardDefinition.Attribute.LIGHT
+	d.monster_type = "Spellcaster"
+	d.monster_kind = CardDefinition.MonsterKind.EFFECT
+	d.level        = 4
+	d.atk          = 1500
+	d.def          = 1200
+	d.card_text    = "You can activate 1 of these effects:\n• Gain 1000 LP\n• Special Summon 1 monster from your hand"
+	
+	# ─── Effect 1: Gain 1000 LP ──────────────────────────────────────────────
+	var eff1 := EffectDefinition.new()
+	eff1.effect_name  = "Gain 1000 LP"
+	eff1.effect_text  = "Gain 1000 Life Points."
+	eff1.spell_speed  = 1
+	eff1.timing       = EffectDefinition.EffectTiming.OPTIONAL
+	eff1.category     = EffectDefinition.EffectCategory.IGNITION
+	eff1.once_per_turn = true
+	eff1.is_continuous = false
+	eff1.targets_required = 0
+	
+	# Conditions: Must be on field, in Main Phase
+	eff1.conditions = [
+		EffectCondition.SourceInZoneCondition.on_field(),
+		EffectCondition.PhaseCondition.main_phases()
+	]
+	
+	# Resolution: Gain 1000 LP
+	var gain_lp := EffectResolutionStep.GainLifePointsStep.new()
+	gain_lp.amount = 1000
+	eff1.resolution_steps = [gain_lp]
+	
+	# ─── Effect 2: Special Summon from hand ──────────────────────────────────
+	var eff2 := EffectDefinition.new()
+	eff2.effect_name  = "Special Summon from Hand"
+	eff2.effect_text  = "Special Summon 1 monster from your hand."
+	eff2.spell_speed  = 1
+	eff2.timing       = EffectDefinition.EffectTiming.OPTIONAL
+	eff2.category     = EffectDefinition.EffectCategory.IGNITION
+	eff2.once_per_turn = true
+	eff2.is_continuous = false
+	eff2.targets_required = 0  # Target selection is handled by the UI
+	
+	# Conditions: Must be on field, in Main Phase
+	eff2.conditions = [
+		EffectCondition.SourceInZoneCondition.on_field(),
+		EffectCondition.PhaseCondition.main_phases()
+	]
+	
+	# Custom resolution: Special Summon from hand
+	# Since we need to let the player choose which card, this uses a custom step
+	var summon_step := _SummonFromHandStep.new()
+	eff2.resolution_steps = [summon_step]
+	
+	# ─── Add both effects ──────────────────────────────────────────────────────
+	d.effects = [eff1, eff2]
+	return d
+
+# ─── Custom Resolution Step for Summon from Hand ─────────────────────────────
+class _SummonFromHandStep extends EffectResolutionStep:
+	var chosen_card: CardInstance = null # Set by the UI before execution
+	
+	func execute(context: EffectContext) -> void:
+		var z := EffectResolutionStep.zm()
+		var player := context.controller
+		
+		# If no card was chosen, pick the first monster in hand
+		if chosen_card == null:
+			var hand := z.hand_of(player)
+			for card in hand.get_cards():
+				if card.definition.is_monster():
+					chosen_card = card
+					break
+		
+		if chosen_card == null:
+			print("No monster to summon!")
+			return
+		
+		# Check if there's room on the field
+		if z.monster_zone_of(player).is_full():
+			print("Monster zone is full!")
+			chosen_card = null
+			return
+		
+		# Special Summon the monster (uses first available slot)
+		# The zone selection is handled by the UI before this step executes
+		z.move_to_first_slot(chosen_card, z.monster_zone_of(player), ZoneManager.MoveReason.SPECIAL_SUMMON)
+		chosen_card.record_special_summon(context.chain_index, &"effect")
+		print("Summoned %s" % chosen_card.definition.card_name)
+		chosen_card = null
