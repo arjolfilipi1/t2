@@ -213,6 +213,7 @@ func _make_test_magician() -> CardDefinition:
 # ─── Custom Resolution Step for Summon from Hand ─────────────────────────────
 class _SummonFromHandStep extends EffectResolutionStep:
 	var chosen_card: CardInstance = null # Set by the UI before execution
+	var target_slot: int = -1 
 	
 	func execute(context: EffectContext) -> void:
 		var z := EffectResolutionStep.zm()
@@ -230,15 +231,19 @@ class _SummonFromHandStep extends EffectResolutionStep:
 			print("No monster to summon!")
 			return
 		
-		# Check if there's room on the field
-		if z.monster_zone_of(player).is_full():
-			print("Monster zone is full!")
-			chosen_card = null
-			return
+		if target_slot >= 0 and target_slot < 5:
+			# Use the specific slot the player selected
+			if z.monster_zone_of(player).get_card_at(target_slot) == null:
+				z.move_to_slot(chosen_card, z.monster_zone_of(player), target_slot, ZoneManager.MoveReason.SPECIAL_SUMMON)
+				print("Summoned %s to slot %d" % [chosen_card.definition.card_name, target_slot])
+			else:
+				# Slot is somehow occupied - fallback to first available
+				print("Slot %d occupied, using first available" % target_slot)
+				z.move_to_first_slot(chosen_card, z.monster_zone_of(player), ZoneManager.MoveReason.SPECIAL_SUMMON)
+		else:
+			# No specific slot - use first available
+			z.move_to_first_slot(chosen_card, z.monster_zone_of(player), ZoneManager.MoveReason.SPECIAL_SUMMON)
 		
-		# Special Summon the monster (uses first available slot)
-		# The zone selection is handled by the UI before this step executes
-		z.move_to_first_slot(chosen_card, z.monster_zone_of(player), ZoneManager.MoveReason.SPECIAL_SUMMON)
 		chosen_card.record_special_summon(context.chain_index, &"effect")
-		print("Summoned %s" % chosen_card.definition.card_name)
 		chosen_card = null
+		target_slot = -1 # Reset

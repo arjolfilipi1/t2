@@ -24,6 +24,9 @@
 class_name BoardView
 extends Control
 const ZoneViewScene = preload("res://ui/board/ZoneView.tscn")
+const _CardSelectorScene := preload("res://ui/card/CardSelector.tscn")
+var _card_selector: CardSelector = null
+
 # ─── Signals ──────────────────────────────────────────────────────────────────
 # ─── Scene Node References ────────────────────────────────────────────────
 @onready var background: ColorRect = $Background
@@ -163,9 +166,14 @@ var _card_views: Dictionary = {}   ## int → CardView
 ## Currently selected CardView (for pending action highlight).
 var _selected_view: CardView = null
 
-# ─── HUD Nodes ────────────────────────────────────────────────────────────────
+# ─── Auto Pass ───────────────────────────────────────────────────────────────
+## Auto-pass timer for when the player has no legal actions
+var _auto_pass_timer: Timer = null
+var _auto_pass_enabled: bool = true
+var _auto_pass_delay: float = 1.0 # 1 second delay
 
-# ─── Setup ────────────────────────────────────────────────────────────────────
+## Tracks if we're waiting for an auto-pass
+var _is_waiting_for_auto_pass: bool = false
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
@@ -206,7 +214,10 @@ func setup(
 	effect_stack.priority_passed.connect(_on_priority_passed)
 	effect_stack.triggers_pending.connect(_on_triggers_pending)
 	_build_zone_views_from_scene()
-# Connect to GameDirector for battle animation timing
+	# Connect to GameDirector for battle animation timing
+	 # Setup auto-pass timer
+	_build_card_selector()
+	_setup_auto_pass_timer()
 	if game_director != null:
 			game_director.attack_declared.connect(_on_attack_declared)
 			game_director.battle_resolved.connect(_on_battle_resolved)
@@ -258,6 +269,7 @@ func _build_zone_views_from_scene() -> void:
 			var zv := ZoneViewScene.instantiate()
 			spell_grid.add_child(zv)
 			zv.setup(zone_manager.spell_zone_of(player), i, "S%d_%s" % [i,pid])
+			print(zv.z_index)
 			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
 			_slot_views["%s_main_spell_%d" % [pid, i]] = zv
 # ─── Zone View Construction ───────────────────────────────────────────────────
@@ -366,7 +378,7 @@ func refresh_hand(player: Player) -> void:
 		var rot    = lerp(-4.0, 4.0, t)     ## Gentle spread rotation
 		view.position = Vector2(start_x + i * (CardView.CARD_W + 4), hand_y + arc_y)
 		view.rotation  = deg_to_rad(rot)
-
+		view.z_index = CardView.Z_INDEX_HAND
 ## Flip all hand cards face-down (on request).
 func conceal_hand(player: Player) -> void:
 	for card in zone_manager.hand_of(player).get_cards():
@@ -381,21 +393,27 @@ func reveal_hand(player: Player,zm:ZoneManager= zone_manager) -> void:
 		view.flip_to(true)
 
 # ─── Glow / Highlight API ─────────────────────────────────────────────────────
+func highlight_summonable(cards: Array[CardInstance]) -> void:
+	clear_all_glows()
+	for card in cards:
+		var view = _card_views.get(card.instance_id, null)
+		if view:
+			view.set_glow(CardView.GlowState.SUMMONABLE)
 
-## Highlight all cards that are legal targets for an effect.
+## Highlight cards that can activate effects (Yellow/Orange)
+func highlight_activatable(cards: Array) -> void:
+	for card in cards:
+		var view = _card_views.get(card.instance_id, null)
+		if view:
+			view.set_glow(CardView.GlowState.ACTIVATABLE)
+
+## Highlight cards that are legal targets (Cyan)
 func highlight_targetable(targets: Array[CardInstance]) -> void:
 	clear_all_glows()
 	for card in targets:
 		var view = _card_views.get(card.instance_id, null)
 		if view:
 			view.set_glow(CardView.GlowState.TARGETABLE)
-
-## Highlight cards the player can activate.
-func highlight_activatable(cards: Array[CardInstance]) -> void:
-	for card in cards:
-		var view = _card_views.get(card.instance_id, null)
-		if view:
-			view.set_glow(CardView.GlowState.ACTIVATABLE)
 
 ## Remove all glow states.
 func clear_all_glows() -> void:
@@ -425,6 +443,7 @@ func update_lp(player: Player, lp: int) -> void:
 		p2_lp_label.text = "P2 LP: %d" % lp
 
 func update_phase(phase_name: String, turn: int, active_player: int) -> void:
+	update_legal_glows()
 	phase_label.text = phase_name
 	turn_label.text  = "Turn %d — Player %d" % [turn, active_player]
 
@@ -460,7 +479,9 @@ func _on_card_moved(
 	reason: ZoneManager.MoveReason
 ) -> void:
 	var view := get_or_create_card_view(card)
-
+	view.kill_all_tweens()
+	if to_zone.zone_type in Zone.FIELD_ZONE_TYPES or to_zone.zone_type == Zone.ZoneType.GRAVEYARD:
+		view.reset_for_field()  
 	# Flip logic — enqueued so it never overlaps a still-playing prior animation
 	anim_queue.enqueue_callback(func():
 		match to_zone.zone_type:
@@ -517,7 +538,8 @@ func _on_card_moved(
 		elif view.get_parent() == null:
 			add_child(view)
 		refresh_hand(card.controller)
-
+	if _from.zone_type == Zone.ZoneType.HAND:
+		refresh_hand(card.controller)
 func _on_zone_changed(zone: Zone) -> void:
 	# Update pile count badges
 	var key := str(zone.zone_id)
@@ -529,12 +551,14 @@ func _on_zone_changed(zone: Zone) -> void:
 
 func _on_chain_link_pushed(link: ChainLink) -> void:
 	var view := _card_views.get(link.source_card.instance_id, null)
+	_cancel_auto_pass()
 	if view:
 		anim_queue.enqueue(func() -> Signal: return view.animate_effect_activate(), "activate")
 	update_chain_hud(effect_stack.links)
 
 func _on_chain_link_resolved(link: ChainLink, was_negated: bool) -> void:
 	var view := _card_views.get(link.source_card.instance_id, null)
+	_cancel_auto_pass()
 	if view:
 		if not was_negated:
 			anim_queue.enqueue(func() -> Signal: return view.animate_effect_resolve(), "resolve")
@@ -547,9 +571,22 @@ func _on_chain_resolved(_links: Array) -> void:
 func _on_priority_passed(to_player: Player) -> void:
 	turn_label.modulate = Color(0.3, 0.9, 1.0) if to_player == players[0] else Color(0.9, 0.4, 0.4)
 	# Show pass button only when local player holds priority on open chain
-	print("prep for button ",to_player.display_name,"i am ",local_player.display_name)
 	pass_button.visible = (to_player != local_player )
-
+	if to_player != local_player and _auto_pass_enabled:
+		update_legal_glows()
+		# Check if the player has ANY legal actions
+		var has_actions = _check_player_has_actions()
+		
+		if not has_actions:
+			# No actions - start auto-pass timer
+			_start_auto_pass()
+		else:
+			# Has actions - cancel any pending auto-pass
+			_cancel_auto_pass()
+	else:
+		# Priority is not ours - cancel auto-pass
+		clear_all_glows()
+		_cancel_auto_pass()
 func _on_triggers_pending(triggers: Array) -> void:
 	## In a full game, show a popup. For now, auto-decline all optional triggers.
 	var choices := {}
@@ -610,6 +647,7 @@ func _build_effect_picker() -> void:
 func _on_card_clicked(view: CardView, card: CardInstance) -> void:
 	## Route the click through the pending-action state machine first.
 	## If we're waiting for a target, this click IS the target selection.
+	_cancel_auto_pass()
 	match _pending_state:
 		PendingState.AWAIT_ATTACK_TARGET:
 			_complete_attack(card)
@@ -653,7 +691,7 @@ func _on_card_inspected(view: CardView, card: CardInstance) -> void:
 
 func _on_empty_slot_clicked(zone_view: ZoneView) -> void:
 	# Check if we're waiting for zone selection
-	print(zone_view.zone_label)
+	_cancel_auto_pass()
 	if _pending_state == PendingState.AWAIT_ZONE_SELECTION:
 		print("AWAIT_ZONE_SELECTION")
 		_complete_zone_selection(zone_view)
@@ -667,7 +705,6 @@ func _complete_zone_selection(zone_view: ZoneView) -> void:
 	var slot := zone_view.slot_index
 	var zone := zone_view.zone
 	
-	# Validate the zone is appropriate for the action
 	match _pending_action_type:
 		"summon":
 			if zone.zone_type != Zone.ZoneType.MAIN_MONSTER:
@@ -675,20 +712,33 @@ func _complete_zone_selection(zone_view: ZoneView) -> void:
 				return
 			game_director.normal_summon(local_player, _pending_card, [], slot)
 			refresh_hand(local_player)
-		"summon_from_hand": # ← NEW
+			_cancel_pending()
+		
+		"summon_from_hand":
+			# Old flow - direct selection without card selector (single monster)
 			if zone.zone_type != Zone.ZoneType.MAIN_MONSTER:
 				_show_error("Invalid zone for summon!")
 				return
 			
-			# Get the effect and set the chosen card and slot
-			var eff: EffectDefinition = _pending_card.definition.effects[_pending_effect_idx]
-			var step := eff.resolution_steps[0] as CardLibrary._SummonFromHandStep
-			if step:
-				step.chosen_card = _pending_targets[0] if not _pending_targets.is_empty() else null
+			var card = _pending_targets[0] if not _pending_targets.is_empty() else null
+			if card:
+				_complete_summon_from_hand(card, slot)
+			else:
+				_show_error("No card selected to summon!")
+				_cancel_pending()
+		
+		"summon_from_hand_selector_zone":  # ← NEW: Handle zone selection after selector
+			if zone.zone_type != Zone.ZoneType.MAIN_MONSTER:
+				_show_error("Invalid zone for summon!")
+				return
 			
-			# Activate the effect with the chosen slot
-			game_director.activate_effect(local_player, _pending_card, _pending_effect_idx, [])
-			refresh_hand(local_player)
+			var card = _pending_targets[0] if not _pending_targets.is_empty() else null
+			if card:
+				_complete_summon_from_hand(card, slot)
+			else:
+				_show_error("No card selected to summon!")
+				_cancel_pending()
+		
 		"set":
 			var expected_type = Zone.ZoneType.MAIN_MONSTER if _pending_card.definition.is_monster() else Zone.ZoneType.MAIN_SPELL
 			if zone.zone_type != expected_type:
@@ -696,12 +746,12 @@ func _complete_zone_selection(zone_view: ZoneView) -> void:
 				return
 			game_director.set_card(local_player, _pending_card, slot)
 			refresh_hand(local_player)
+			_cancel_pending()
 		
 		"activate":
-			# For activation, you might want to place continuous spells/traps in specific slots
 			game_director.activate_effect(local_player, _pending_card, 0, [])
-	
-	_cancel_pending()
+			_cancel_pending()
+
 func _show_error(message: String) -> void:
 	print("Error: %s" % message)
 	# Optional: Show a temporary error label
@@ -715,6 +765,7 @@ func _show_error(message: String) -> void:
 # ─── Tooltip Action Routing ───────────────────────────────────────────────────
 
 func _on_tooltip_action(action: int, card: CardInstance) -> void:
+	_cancel_auto_pass()
 	match action:
 		CardTooltip.Action.SUMMON:
 			_do_summon(card)
@@ -898,6 +949,10 @@ func _start_effect_targeting(card: CardInstance, eff_idx: int) -> void:
 	if eff.effect_name == "Special Summon from Hand":
 		_start_summon_from_hand_flow(card, eff_idx)
 		return
+	# Check if this is a search effect (like Sangan)
+	if eff.effect_name == "GY Search" or eff.effect_name.contains("Search"):
+		_start_search_flow(card, eff_idx)
+		return
 
 	## No targeting required — activate immediately
 	if eff.targets_required == 0:
@@ -908,7 +963,24 @@ func _start_effect_targeting(card: CardInstance, eff_idx: int) -> void:
 	var candidates := RuleEngine.get_legal_targets(eff, local_player, zone_manager)
 	if candidates.size() < eff.targets_required:
 		return
-
+# If multiple targets and the player needs to select from a list
+	# rather than clicking on the board, use the selector
+	if eff.targets_required == 1:
+		# Show selector for single target
+		_card_selector.show_for(
+			candidates,
+			"Select a target for %s" % eff.effect_name,
+			"",
+			1, 1
+		)
+		_pending_state = PendingState.AWAIT_EFFECT_TARGET
+		_pending_card = card
+		_pending_effect_idx = eff_idx
+		_pending_action_type = "target_effect"
+		_targets_needed = 1
+		return
+	
+	# Fallback to click-based targeting for multiple targets
 	_pending_state = PendingState.AWAIT_EFFECT_TARGET
 	_pending_card = card
 	_pending_effect_idx = eff_idx
@@ -928,6 +1000,7 @@ func _start_effect_targeting(card: CardInstance, eff_idx: int) -> void:
 		"s" if eff.targets_required > 1 else ""
 	])
 
+
 # ─── NEW: Special Summon from Hand flow ──────────────────────────────────────
 func _start_summon_from_hand_flow(card: CardInstance, eff_idx: int) -> void:
 	# Step 1: Get all monsters in hand
@@ -941,44 +1014,49 @@ func _start_summon_from_hand_flow(card: CardInstance, eff_idx: int) -> void:
 		_show_error("No monsters in hand to summon!")
 		return
 	
-	# Step 2: Show a simple selection for which monster to summon
-	# For now, just pick the first one (you can add a proper selector later)
-	var to_summon := monsters[0]
-	
-	# Step 3: Check if there's room on the field
-	if zone_manager.monster_zone_of(local_player).is_full():
-		_show_error("Monster zone is full!")
+	 # Step 2: If only one monster, skip selector
+	if monsters.size() == 1:
+		var to_summon := monsters[0]
+		
+		# Check if there's room on the field
+		if zone_manager.monster_zone_of(local_player).is_full():
+			_show_error("Monster zone is full!")
+			return
+		
+		# Check how many empty zones
+		var empty_slots := zone_manager.monster_zone_of(local_player).empty_slot_count()
+		
+		if empty_slots == 1:
+			var slot := zone_manager.monster_zone_of(local_player).first_empty_slot()
+			_complete_summon_from_hand(to_summon, slot)
+			return
+		
+		# Multiple zones - ask player to choose
+		_pending_state = PendingState.AWAIT_ZONE_SELECTION
+		_pending_card = card
+		_pending_effect_idx = eff_idx
+		_pending_action_type = "summon_from_hand"
+		_pending_targets = [to_summon]
+		
+		clear_all_glows()
+		clear_zone_highlights()
+		highlight_empty_zones(Zone.ZoneType.MAIN_MONSTER, local_player, true)
+		_show_cancel_hint("Click on an empty monster zone to summon %s" % to_summon.definition.card_name)
 		return
 	
-	# Step 4: Check how many empty zones
-	var empty_slots := zone_manager.monster_zone_of(local_player).empty_slot_count()
-	
-	if empty_slots == 1:
-		# Only one choice - place it automatically
-		var slot := zone_manager.monster_zone_of(local_player).first_empty_slot()
-		# Store the chosen card in the effect step
-		var eff: EffectDefinition = card.definition.effects[eff_idx]
-		var step := eff.resolution_steps[0] as CardLibrary._SummonFromHandStep
-		if step:
-			step.chosen_card = to_summon
-		game_director.activate_effect(local_player, card, eff_idx, [])
-		return
-	
-	# Multiple empty zones - ask player to choose
-	_pending_state = PendingState.AWAIT_ZONE_SELECTION
+	# Step 3: Multiple monsters - show CardSelector
+	_pending_state = PendingState.AWAIT_EFFECT_TARGET
 	_pending_card = card
 	_pending_effect_idx = eff_idx
-	_pending_action_type = "summon_from_hand"
+	_pending_action_type = "summon_from_hand_selector"
+	_targets_needed = 1
 	
-	# Store the monster to summon
-	_pending_targets = [to_summon]
-	
-	# Highlight empty monster zones
-	clear_all_glows()
-	clear_zone_highlights()
-	highlight_empty_zones(Zone.ZoneType.MAIN_MONSTER, local_player, true)
-	
-	_show_cancel_hint("Click on an empty monster zone to summon %s" % to_summon.definition.card_name)
+	_card_selector.show_for(
+		monsters,
+		"Select a monster to summon",
+		"Choose one monster from your hand",
+		1, 1
+	)
 
 func _collect_effect_target(card: CardInstance) -> void:
 	## Check this card is actually a highlighted target
@@ -1035,6 +1113,9 @@ func _cancel_pending() -> void:
 	_pending_effect_idx = -1
 	_pending_targets.clear()
 	_targets_needed     = 0
+	if _card_selector and _card_selector.visible:
+		_card_selector.hide()
+
 	deselect_all()
 	clear_all_glows()
 	clear_zone_highlights()
@@ -1057,7 +1138,89 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cancel_pending()
 			get_viewport().set_input_as_handled()
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+func _get_summon_step(card: CardInstance, eff_idx: int) -> CardLibrary._SummonFromHandStep:
+	var eff: EffectDefinition = card.definition.effects[eff_idx]
+	for step in eff.resolution_steps:
+		if step is CardLibrary._SummonFromHandStep:
+			return step
+	return null
+func _setup_auto_pass_timer() -> void:
+	_auto_pass_timer = Timer.new()
+	_auto_pass_timer.wait_time = _auto_pass_delay
+	_auto_pass_timer.one_shot = true
+	_auto_pass_timer.timeout.connect(_on_auto_pass_timeout)
+	add_child(_auto_pass_timer)
+func _check_player_has_actions() -> bool:
+	if game_director == null:
+		return true # Don't auto-pass if no game director
+	
+	var la := game_director.legal_actions_for(local_player)
+	
+	# Check if there are ANY legal actions
+	# This includes: effects, summons, sets, attacks, position changes
+	var has_actions := false
+	
+	# Check activatable effects
+	if not la.can_activate.is_empty():
+		has_actions = true
+	
+	# Check normal summons
+	if not la.can_normal_summon.is_empty():
+		has_actions = true
+	
+	# Check sets
+	if not la.can_set.is_empty():
+		has_actions = true
+	
+	# Check attacks (only in battle phase)
+	if not la.can_attack.is_empty():
+		has_actions = true
+	
+	# Check position changes
+	if not la.can_change_position.is_empty():
+		has_actions = true
+	
+	return has_actions
 
+## Start the auto-pass timer
+func _start_auto_pass() -> void:
+	print("started auto pass")
+	if _auto_pass_timer == null:
+		return
+	
+	if _is_waiting_for_auto_pass:
+		return # Already waiting
+	
+	_is_waiting_for_auto_pass = true
+	_auto_pass_timer.start()
+	turn_label.text = "Auto-passing in %.1fs..." % _auto_pass_delay
+	turn_label.modulate = Color(0.5, 0.8, 0.5)
+
+## Cancel the auto-pass timer
+func _cancel_auto_pass() -> void:
+	if _auto_pass_timer == null:
+		return
+	
+	_is_waiting_for_auto_pass = false
+	_auto_pass_timer.stop()
+	
+	# Reset turn label if it was showing auto-pass message
+	if turn_label and turn_label.text.begins_with("Auto-passing"):
+		turn_label.text = "Turn %d — Player %d" % [effect_stack._current_turn() if effect_stack else 1, local_player.player_id]
+		turn_label.modulate = Color(0.7, 0.7, 0.7)
+
+## Called when the auto-pass timer expires
+func _on_auto_pass_timeout() -> void:
+	_is_waiting_for_auto_pass = false
+	
+	# Double-check we still have no actions (something might have changed)
+	if _check_player_has_actions():
+		return
+	
+	# Auto-pass priority
+	if game_director != null:
+		print("Auto-pass: No legal actions, passing priority")
+		game_director.pass_priority(local_player)
 func _zone_type_key(type: Zone.ZoneType) -> String:
 	match type:
 		Zone.ZoneType.MAIN_MONSTER:  return "main_monster"
@@ -1106,7 +1269,158 @@ func _on_pile_clicked(player: Player, pile_type: String) -> void:
 		print("  Contains %d cards" % zone.count())
 		# Emit signal to show pile viewer
 		# pile_view_requested.emit(player, pile_type, zone.get_cards())
+func _build_card_selector() -> void:
+	_card_selector = _CardSelectorScene.instantiate()
+	add_child(_card_selector)
+	_card_selector.card_selected.connect(_on_card_selector_selected)
+	_card_selector.cancelled.connect(_on_card_selector_cancelled)
+	_card_selector.hide()
 
+func _on_card_selector_selected(card: CardInstance) -> void:
+	print("Card selected: %s" % card.definition.card_name)
+	
+	match _pending_action_type:
+		"search":
+			# Move the selected card to hand
+			zone_manager.move(card, zone_manager.hand_of(local_player), ZoneManager.MoveReason.EFFECT_RETURN)
+			refresh_hand(local_player)
+			_cancel_pending()
+		
+		"target_effect":
+			# Add to pending targets
+			_pending_targets.append(card)
+			var view = _card_views.get(card.instance_id, null)
+			if view:
+				view.set_glow(CardView.GlowState.TARGETED)
+			
+			# Check if we have enough targets
+			if _pending_targets.size() >= _targets_needed:
+				_complete_effect_activation()
+			else:
+				_show_cancel_hint("Select %d more target%s" % [
+					_targets_needed - _pending_targets.size(),
+					"s" if _targets_needed - _pending_targets.size() > 1 else ""
+				])
+		
+		"summon_from_hand_selector":
+			# ─── FIX: Store the selected card and transition to zone selection ───
+			# Store the card to summon
+			_pending_targets = [card]
+			
+			# Check if there's room on the field
+			if zone_manager.monster_zone_of(local_player).is_full():
+				_show_error("Monster zone is full!")
+				_cancel_pending()
+				return
+			
+			# Check how many empty zones
+			var empty_slots := zone_manager.monster_zone_of(local_player).empty_slot_count()
+			
+			if empty_slots == 1:
+				# Only one choice - place it automatically
+				var slot := zone_manager.monster_zone_of(local_player).first_empty_slot()
+				_complete_summon_from_hand(card, slot)
+				return
+			
+			# ─── TRANSITION TO ZONE SELECTION ──────────────────────────────────
+			# Change state to zone selection
+			_pending_state = PendingState.AWAIT_ZONE_SELECTION
+			_pending_action_type = "summon_from_hand_selector_zone"  # New type for clarity
+			
+			# Highlight empty monster zones
+			clear_all_glows()
+			clear_zone_highlights()
+			highlight_empty_zones(Zone.ZoneType.MAIN_MONSTER, local_player, true)
+			_show_cancel_hint("Click on an empty monster zone to summon %s" % card.definition.card_name)
+
+
+func _complete_effect_activation() -> void:
+	## Called when all targets have been selected for an effect
+	if _pending_card == null:
+		return
+	
+	var source := _pending_card
+	var eff_idx := _pending_effect_idx
+	var targets := _pending_targets.duplicate()
+	
+	# Clear pending state before activating
+	_cancel_pending()
+	
+	# Fire the effect
+	game_director.activate_effect(local_player, source, eff_idx, targets)
+
+func _on_card_selector_cancelled() -> void:
+	print("Card selection cancelled")
+	_cancel_pending()
+func _start_search_flow(card: CardInstance, eff_idx: int) -> void:
+	# Get the search candidates from the effect step
+	var eff: EffectDefinition = card.definition.effects[eff_idx]
+	
+	# For Sangan, we need to search the deck for monsters with ATK <= 1500
+	var deck := zone_manager.deck_of(local_player)
+	var candidates: Array[CardInstance] = []
+	
+	for deck_card in deck.get_cards():
+		# Apply the search condition (ATK <= 1500 for Sangan)
+		if deck_card.get_atk() <= 1500 and deck_card.definition.is_monster():
+			candidates.append(deck_card)
+	
+	if candidates.is_empty():
+		_show_error("No valid cards to search!")
+		return
+	
+	# Show the selector
+	_card_selector.show_for(
+		candidates,
+		"Select a card to add to your hand",
+		"Search your deck",
+		1, 1
+	)
+	
+	_pending_state = PendingState.AWAIT_EFFECT_TARGET
+	_pending_card = card
+	_pending_effect_idx = eff_idx
+	_pending_action_type = "search"
+	_targets_needed = 1
+
+func _complete_summon_from_hand(card: CardInstance, slot: int) -> void:
+	## Complete the summon from hand flow with the selected card and slot
+	if _pending_card == null:
+		return
+	
+	# Get the effect and set the chosen card and slot
+	var eff: EffectDefinition = _pending_card.definition.effects[_pending_effect_idx]
+	var step := _get_summon_step(_pending_card, _pending_effect_idx)
+	if step:
+		step.chosen_card = card
+		step.target_slot = slot
+	else:
+		_show_error("Could not find summon step!")
+		_cancel_pending()
+		return
+	
+	# Activate the effect
+	game_director.activate_effect(local_player, _pending_card, _pending_effect_idx, [])
+	refresh_hand(local_player)
+	_cancel_pending()
+func update_legal_glows() -> void:
+	if game_director == null:
+		return
+	
+	var la := game_director.legal_actions_for(local_player)
+	
+	# Clear all glows first
+	clear_all_glows()
+	
+	# Show Blue glow for summonable cards
+	highlight_summonable(la.can_normal_summon)
+	
+	# Show Yellow/Orange glow for activatable cards
+	var activatable :Array = la.can_activate.keys()
+	if activatable:
+		highlight_activatable(activatable)
+	
+	# Note: Targetable glows are shown separately during targeting
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inner class: field divider / centre line drawing

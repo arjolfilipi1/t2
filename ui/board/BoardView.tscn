@@ -61,7 +61,7 @@ expand_mode = 1
 stretch_mode = 4
 
 [node name="P2_InfoBar" type="Panel" parent="."]
-z_index = 3
+z_index = 26
 layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
@@ -275,7 +275,7 @@ offset_right = 98.0
 offset_bottom = 306.0
 
 [node name="P1_InfoBar" type="Panel" parent="."]
-z_index = 3
+z_index = 26
 layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
@@ -323,7 +323,7 @@ offset_bottom = 35.0
 text = "Banish"
 
 [node name="HUD_Bar" type="Panel" parent="."]
-z_index = 3
+z_index = 26
 layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
@@ -384,6 +384,7 @@ text = "DRAW"
 
 [node name="ChainDisplay" type="Panel" parent="."]
 visible = false
+z_index = 26
 layout_mode = 1
 anchors_preset = 6
 anchor_left = 1.0

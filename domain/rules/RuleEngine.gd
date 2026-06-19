@@ -609,17 +609,17 @@ static func get_all_legal_actions(
 	stack:  EffectStack
 ) -> LegalActions:
 	var la := LegalActions.new()
-
-	# Summoning and setting — from hand
-	for card:CardInstance in zm.hand_of(player).get_cards():
+	
+	# Summoning and setting - from hand
+	for card in zm.hand_of(player).get_cards():
 		if can_normal_summon(card, player, zm, ctx).valid:
-			la.can_normal_summon.append(card)
+			la.can_normal_summon.append(card)  # ← Blue glow
 		if can_set(card, player, zm, ctx).valid:
 			la.can_set.append(card)
 		var activatable := get_activatable_effects(card, player, zm, ctx, stack)
 		if not activatable.is_empty():
-			la.can_activate[card] = activatable
-
+			la.can_activate[card] = activatable  # ← Yellow/Orange glow
+	
 	# Field actions
 	for card in zm.all_cards_on_field(player):
 		if card.definition.is_monster() and ctx.is_battle_phase():
@@ -628,10 +628,10 @@ static func get_all_legal_actions(
 				la.can_attack[card] = targets
 		var activatable := get_activatable_effects(card, player, zm, ctx, stack)
 		if not activatable.is_empty():
-			la.can_activate[card] = activatable
+			la.can_activate[card] = activatable  # ← Yellow/Orange glow
 		if can_change_battle_position(card, player, ctx).valid:
 			la.can_change_position.append(card)
-
+	
 	return la
 
 

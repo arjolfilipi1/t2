@@ -1,9 +1,29 @@
-[gd_scene load_steps=2 format=3 uid="uid://rrbqvucxipfb"]
+[gd_scene load_steps=5 format=3 uid="uid://rrbqvucxipfb"]
 
+[ext_resource type="Shader" path="res://assets/shaders/activate.gdshader" id="1_62642"]
 [ext_resource type="Script" path="res://ui/card/CardView.gd" id="1_cardview"]
 
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_gh4hc"]
+shader = ExtResource("1_62642")
+shader_parameter/glow_color = Color(0.2, 1, 0.3, 1)
+shader_parameter/glow_intensity = 1.0
+shader_parameter/glow_enabled = false
+shader_parameter/pulse_speed = 1.0
+shader_parameter/card_w = 100.0
+shader_parameter/card_h = 145.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_jw7a2"]
+shader = ExtResource("1_62642")
+shader_parameter/glow_color = Color(0.2, 1, 0.3, 1)
+shader_parameter/glow_intensity = 1.0
+shader_parameter/glow_enabled = false
+shader_parameter/pulse_speed = 1.0
+shader_parameter/card_w = 100.0
+shader_parameter/card_h = 145.0
+
 [node name="CardView" type="Control"]
-z_index = 2
+z_index = 4
+material = SubResource("ShaderMaterial_gh4hc")
 custom_minimum_size = Vector2(100, 150)
 layout_mode = 3
 anchor_right = 0.078
@@ -111,6 +131,7 @@ theme_override_font_sizes/font_size = 6
 
 [node name="GlowRect" type="ColorRect" parent="."]
 visible = false
+material = SubResource("ShaderMaterial_jw7a2")
 layout_mode = 0
 offset_right = 100.0
 offset_bottom = 145.0

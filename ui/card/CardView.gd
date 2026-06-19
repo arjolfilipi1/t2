@@ -46,24 +46,37 @@ signal drag_started(view: CardView, offset: Vector2)
 # ─── Visual State ─────────────────────────────────────────────────────────────
 
 enum GlowState {
-	NONE,        ## Normal card, no highlight
-	ACTIVATABLE, ## Green — player can activate this card/effect
-	TARGETABLE,  ## Blue — this card is a valid target for an effect
-	TARGETED,    ## Gold — this card has been selected as a target
-	ATTACKING,   ## Red — this monster is declaring an attack
-	SELECTED,    ## White — currently selected by the player
-	CHAIN_LINK,  ## Purple — this card is on the effect chain
+	NONE,           ## No glow
+	SUMMONABLE,     ## Blue - can be Normal Summoned/Set
+	ACTIVATABLE,    ## Yellow/Orange - can activate effect
+	TARGETABLE,     ## Cyan - valid target for effect
+	TARGETED,       ## Gold - selected as target
+	ATTACKING,      ## Red - declaring attack
+	SELECTED,       ## White - currently selected
+	CHAIN_LINK,     ## Purple - on the effect chain
+	NEGATED,        ## Red - effect was negated
 }
 
-# Colors per glow state — tuned to Yu-Gi-Oh MD palette
+# Colors per glow state - Master Duel style
 const GLOW_COLORS := {
 	GlowState.NONE:        Color(0, 0, 0, 0),
-	GlowState.ACTIVATABLE: Color(0.2, 1.0, 0.3, 1.0),
-	GlowState.TARGETABLE:  Color(0.2, 0.6, 1.0, 1.0),
-	GlowState.TARGETED:    Color(1.0, 0.85, 0.1, 1.0),
-	GlowState.ATTACKING:   Color(1.0, 0.15, 0.1, 1.0),
-	GlowState.SELECTED:    Color(1.0, 1.0, 1.0, 1.0),
-	GlowState.CHAIN_LINK:  Color(0.7, 0.1, 1.0, 1.0),
+	GlowState.SUMMONABLE:  Color(0.2, 0.6, 1.0, 1.0),    # Blue
+	GlowState.ACTIVATABLE: Color(1.0, 0.7, 0.1, 1.0),    # Yellow/Orange
+	GlowState.TARGETABLE:  Color(0.2, 0.8, 1.0, 1.0),    # Light Blue/Cyan
+	GlowState.TARGETED:    Color(1.0, 0.85, 0.1, 1.0),   # Gold
+	GlowState.ATTACKING:   Color(1.0, 0.2, 0.1, 1.0),    # Red
+	GlowState.SELECTED:    Color(1.0, 1.0, 1.0, 1.0),    # White
+	GlowState.CHAIN_LINK:  Color(0.7, 0.1, 1.0, 1.0),    # Purple
+	GlowState.NEGATED:     Color(0.8, 0.2, 0.2, 1.0),    # Dark Red
+}
+
+# Pulse speed for different glow types
+const GLOW_PULSE_SPEED := {
+	GlowState.SUMMONABLE:  1.2,  # Fast pulse
+	GlowState.ACTIVATABLE: 1.5,  # Fast pulse
+	GlowState.TARGETABLE:  0.8,  # Medium pulse
+	GlowState.TARGETED:    0.0,  # No pulse (solid)
+	GlowState.CHAIN_LINK:  2.0,  # Fast pulse
 }
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -75,6 +88,12 @@ const MOVE_DURATION  := 0.22   ## seconds for zone-to-zone tween
 const HOVER_LIFT     := -14.0  ## pixels to rise on hover
 const ATK_ROT_DEG    := 0.0
 const DEF_ROT_DEG    := 90.0   ## DEF position = rotated 90°
+
+#─── Index numbers ────────────────────────────────────────────────────────────
+const Z_INDEX_HAND = 5      # Hand cards are above most things
+const Z_INDEX_FIELD = 3     # Field cards (monsters, spells)
+const Z_INDEX_HOVER = 10    # Hovered cards (above everything)
+const Z_INDEX_ATTACKING = 8 # Attacking cards
 
 # ─── Node References (assigned in _ready) ────────────────────────────────────
 # Types are kept as their base classes (Control/Node) where CardViewBuilder
@@ -258,6 +277,9 @@ func flip_to(face_up: bool, instant: bool = false) -> void:
 		if _is_face_up == face_up:
 			return
 		_is_face_up = face_up
+		if not face_up:
+			rotation = 0.0
+			z_index = 3
 		if instant:
 			front_face.visible = face_up
 			back_face.visible  = not face_up
@@ -295,28 +317,42 @@ func set_glow(new_state: GlowState) -> void:
 
 func _update_glow() -> void:
 	var color: Color = GLOW_COLORS[glow_state]
+	var pulse_speed: float = GLOW_PULSE_SPEED.get(glow_state, 1.0)
+	
 	if glow_rect.material and glow_rect.material is ShaderMaterial:
 		glow_rect.material.set_shader_parameter(&"glow_color", color)
 		glow_rect.material.set_shader_parameter(&"glow_enabled", glow_state != GlowState.NONE)
+		glow_rect.material.set_shader_parameter(&"pulse_speed", pulse_speed)
+	
 	glow_rect.visible = glow_state != GlowState.NONE
-
-	# Pulse animation for activatable/targetable states
+	
+	# Start/stop pulse animation
 	if _tween and _tween.is_valid():
 		_tween.kill()
-	if glow_state in [GlowState.ACTIVATABLE, GlowState.TARGETABLE, GlowState.CHAIN_LINK]:
-		_start_pulse_animation()
+	
+	if glow_state in [GlowState.SUMMONABLE, GlowState.ACTIVATABLE, GlowState.TARGETABLE, GlowState.CHAIN_LINK]:
+		_start_pulse_animation(pulse_speed)
 
-func _start_pulse_animation() -> void:
+
+func _start_pulse_animation(speed: float = 1.0) -> void:
+	if not glow_rect.material or not (glow_rect.material is ShaderMaterial):
+		return
+	
 	var tw := create_tween()
 	tw.set_loops()
+	tw.set_ease(Tween.EASE_IN_OUT)
+	
+	# Pulse between 0.5 and 1.0 intensity
+	var duration = 0.7 / speed
 	tw.tween_method(func(v: float):
 		if glow_rect.material and glow_rect.material is ShaderMaterial:
 			glow_rect.material.set_shader_parameter(&"glow_intensity", v)
-	, 0.5, 1.0, 0.7)
+	, 0.6, 1.0, duration)
 	tw.tween_method(func(v: float):
 		if glow_rect.material and glow_rect.material is ShaderMaterial:
 			glow_rect.material.set_shader_parameter(&"glow_intensity", v)
-	, 1.0, 0.5, 0.7)
+	, 1.0, 0.6, duration)
+
 
 func _apply_glow_shader() -> void:
 	# Inline shader — no external .gdshader file needed
@@ -511,15 +547,30 @@ func _on_mouse_entered() -> void:
 	# Scale slightly
 	tw.parallel().tween_property(self, "scale", Vector2(1.06, 1.06), 0.12)
 	_tween = tw
+	z_index = Z_INDEX_HOVER
 func _on_mouse_exited() -> void:
 	if not _is_hovered:
 		return
+	var target_y_pos: float
+	if card.is_on_field() or card.is_banished() or card.is_in_graveyard():
+		target_y_pos = 0.0
+	else:
+		target_y_pos = position.y - HOVER_LIFT
 	_is_hovered = false
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
-	tw.tween_property(self, "position:y", position.y - HOVER_LIFT, 0.12)
+	tw.tween_property(self, "position:y",target_y_pos , 0.12)
 	tw.parallel().tween_property(self, "scale", Vector2.ONE, 0.12)
 	_tween = tw
+	if is_on_field():
+		z_index = Z_INDEX_FIELD
+	else:
+		z_index = Z_INDEX_HAND
+func is_on_field() -> bool:
+	if card == null:
+		return false
+	return card.is_on_field()
+
 # ─── Input ────────────────────────────────────────────────────────────────────
 
 func _on_gui_input(event: InputEvent) -> void:
@@ -553,7 +604,13 @@ func _attribute_color(attr: CardDefinition.Attribute) -> Color:
 		CardDefinition.Attribute.WIND:   return Color(0.30, 0.70, 0.30)
 		CardDefinition.Attribute.DIVINE: return Color(0.90, 0.75, 0.20)
 	return Color(0.3, 0.3, 0.3)
-
+func reset_for_field() ->void:
+	kill_all_tweens()
+	rotation =0.0
+	z_index = Z_INDEX_FIELD
+	_is_hovered = false
+	scale = Vector2.ONE
+	position = Vector2.ZERO
 func _to_string() -> String:
 	var name := card.definition.card_name if card else "empty"
 	return "CardView(%s)" % name
