@@ -410,7 +410,6 @@ static func can_activate_effect(
 
 	# ── Priority ──────────────────────────────────────────────────────────────
 	if stack.priority_holder != player:
-		print("not your prio")
 		return RuleResult.fail(RuleResult.Reason.NOT_YOUR_PRIORITY,
 			"You don't hold priority.")
 	if ctx.chain_open and not stack.chain_is_empty():
@@ -475,7 +474,6 @@ static func can_activate_effect(
 			"%s's effect can only be used once per turn per name." % card.definition.card_name)
 	# ── Once-per-turn ─────────────────────────────────────────────────────────
 	if eff.once_per_turn and card.was_effect_used_this_turn(effect_index, ctx.turn_number):
-		print("opt per card")
 		return RuleResult.fail(RuleResult.Reason.ONCE_PER_TURN_USED,
 			"%s's effect can only be used once per turn." % card.definition.card_name)
 
@@ -487,7 +485,6 @@ static func can_activate_effect(
 	# ── Phase / timing ────────────────────────────────────────────────────────
 	var timing_result := _check_timing(eff, card, player, ctx, stack)
 	if not timing_result.valid:
-		print("no valid timing")
 		return timing_result
 
 	# ── Conditions ────────────────────────────────────────────────────────────

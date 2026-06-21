@@ -55,13 +55,14 @@ var _is_playing: bool = false
 ## Enqueue a single animation. `producer` must return a Signal (e.g. a Tween's
 ## "finished" signal, or a custom signal emitted when the animation completes).
 func enqueue(producer: Callable, label: String = "") -> void:
-	print("added action:",label)
+	print("label: ",label)
 	_queue.append({ "callables": [producer], "label": label })
 	_maybe_start()
 
 ## Enqueue several animations that should all play simultaneously.
 ## The queue waits for every one of them to finish before continuing.
 func enqueue_parallel(producers: Array[Callable], label: String = "") -> void:
+	print(label)
 	if producers.is_empty():
 		return
 	_queue.append({ "callables": producers, "label": label })
@@ -93,12 +94,15 @@ func _maybe_start() -> void:
 		return
 	if _queue.is_empty():
 		return
+	
 	_is_playing = true
 	queue_started.emit()
 	_process_next()
 
 func _process_next() -> void:
+	print("process next",len(_queue))
 	if _queue.is_empty():
+		print("play next but empty")
 		_is_playing = false
 		queue_finished.emit()
 		return
@@ -106,7 +110,7 @@ func _process_next() -> void:
 	var item: Dictionary       = _queue.pop_front()
 	var producers: Array       = item["callables"]
 	var label: String          = item.get("label", "")
-
+	print("anim queue",label,",queue:",len(_queue))
 	if producers.size() == 1:
 		var sig: Signal = producers[0].call()
 		await sig
@@ -116,7 +120,7 @@ func _process_next() -> void:
 			signals.append(p.call())
 		for s in signals:
 			await s
-
+	
 	item_finished.emit(label)
 	_process_next()
 

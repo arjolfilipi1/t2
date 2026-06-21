@@ -237,8 +237,6 @@ func mark_effect_used(effect_index: int, turn_number: int) -> void:
 	used_effects[effect_index] = turn_number
 
 func was_effect_used_this_turn(effect_index: int, current_turn: int) -> bool:
-	print("checked once per turn for ",definition.card_id)
-	print("result ",used_effects)
 	return used_effects.get(effect_index, -1) == current_turn
 
 func mark_effect_used_duel(effect_index: int) -> void:

@@ -442,6 +442,7 @@ func animate_summon() -> Signal:
 ## damage step. Returns "finished" so the caller can sequence destruction
 ## or LP damage feedback right after impact.
 func animate_attack_lunge(target_global: Vector2) -> Signal:
+	print("animating attack for ",card.definition.card_name)
 	var home      := global_position
 	var direction := (target_global - home)
 	## Lunge 60% of the way to the target, not all the way — the card

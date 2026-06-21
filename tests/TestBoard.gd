@@ -130,9 +130,7 @@ func _boot_ui() -> void:
 
 func _populate_decks() -> void:
 	## Build two 10-card test decks (no real CardDatabase needed)
-	var p2_defs := [CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),_def(&"dark_magician",     "Dark Magician",     CardDefinition.CardType.MONSTER,
-			CardDefinition.Attribute.DARK, "Spellcaster", CardDefinition.MonsterKind.NORMAL,
-			4, 2500, 2100),_def(&"celtic_guardian",   "Celtic Guardian",   CardDefinition.CardType.MONSTER,
+	var p2_defs := [CardLibrary._make_ash_blossom(),CardLibrary._make_ash_blossom(),_def(&"celtic_guardian",   "Celtic Guardian",   CardDefinition.CardType.MONSTER,
 			CardDefinition.Attribute.EARTH, "Warrior", CardDefinition.MonsterKind.NORMAL,
 			4, 1400, 1200),_def(&"celtic_guardian",   "Celtic Guardian",   CardDefinition.CardType.MONSTER,
 			CardDefinition.Attribute.EARTH, "Warrior", CardDefinition.MonsterKind.NORMAL,

@@ -335,6 +335,7 @@ func destroy_card_view(card: CardInstance) -> void:
 		return
 	var view: CardView = _card_views[card.instance_id]
 	_card_views.erase(card.instance_id)
+	
 	anim_queue.enqueue(func() -> Signal: return view.animate_destroy(), "destroy_view")
 	anim_queue.enqueue_callback(func(): view.queue_free(), "free_view")
 # ─── Zone → ZoneView Lookup ───────────────────────────────────────────────────
@@ -604,10 +605,10 @@ func _on_attack_declared(attacker: CardInstance, target: CardInstance) -> void:
 	var attacker_view := _card_views.get(attacker.instance_id, null)
 	if attacker_view == null:
 		return
-
 	if target == null:
 		## Direct attack — lunge toward the opponent's LP display area
 		var lp_anchor := p2_lp_label if attacker.controller == players[0] else p1_lp_label
+		print("enque")
 		anim_queue.enqueue(
 			func() -> Signal: return attacker_view.animate_attack_lunge(lp_anchor.global_position),
 			"attack_lunge_direct"
@@ -617,8 +618,9 @@ func _on_attack_declared(attacker: CardInstance, target: CardInstance) -> void:
 	var target_view := _card_views.get(target.instance_id, null)
 	if target_view == null:
 		return
-
+	print("enque")
 	var target_center :Vector2= target_view.global_position + target_view.size / 2.0
+
 	anim_queue.enqueue_parallel([
 		func() -> Signal: return attacker_view.animate_attack_lunge(target_center),
 		func() -> Signal: return target_view.animate_take_hit(),
