@@ -432,7 +432,6 @@ func animate_summon() -> Signal:
 	tw.set_trans(Tween.TRANS_BACK)
 	tw.tween_property(self, "scale", Vector2.ONE, 0.3)
 	tw.tween_property(self, "modulate:a", 1.0, 0.2)
-	_tween = tw
 	return tw.finished
 	
 # ─── Attack Animation ─────────────────────────────────────────────────────────

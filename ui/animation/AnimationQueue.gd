@@ -117,9 +117,9 @@ func _process_next() -> void:
 	else:
 		var signals: Array[Signal] = []
 		for p in producers:
-			signals.append(p.call())
-		for s in signals:
-			await s
+			var s = p.call()
+			await s  # Wait NOW, not later
+			
 	
 	item_finished.emit(label)
 	_process_next()
