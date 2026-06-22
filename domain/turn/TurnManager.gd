@@ -41,10 +41,17 @@ signal turn_ending(player: Player)
 
 ## Fired when a player's LP reach 0.
 signal player_defeated(player: Player)
-
+	
+## Fired when a player's hand exceeds the size limit at End Phase.
 ## Fired when the game ends (one player wins).
-signal game_over(winner: Player, loser: Player)
 
+## it immediately for the AI). TurnManager will NOT pass the turn until
+## confirm_hand_discard() is called back with the chosen cards.
+signal hand_limit_exceeded(player: Player, excess_count: int, hand_cards: Array)
+## True while waiting on a discard decision before the turn can pass.
+var _awaiting_discard: bool = false
+## GameDirector listens for this and creates an InputRequest (or resolves
+signal game_over(winner: Player, loser: Player)
 # ─── Dependencies (set in setup()) ───────────────────────────────────────────
 
 var _players:   Array[Player]  = []

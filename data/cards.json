@@ -1,0 +1,44 @@
+[
+  {
+    "id": "lightning_vortex",
+    "name": "Lightning Vortex",
+    "type": "spell",
+    "spell_type": "normal",
+    "text": "Discard 1 card to destroy all face-up monsters your opponent controls.",
+    "effects": [
+      {
+        "name": "Destroy all opponent monsters",
+        "spell_speed": 1,
+        "category": "ignition",
+        "once_per_turn": false,
+        "costs": [
+          { "type": "discard", "count": 1 }
+        ],
+        "conditions": [
+          { "type": "opponent_monster_count", "min_count": 1 }
+        ],
+        "resolution": [
+          { "type": "destroy_all_monsters", "include_controller": false, "include_opponent": true }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "pot_of_greed",
+    "name": "Pot of Greed",
+    "type": "spell",
+    "spell_type": "normal",
+    "text": "Draw 2 cards.",
+    "effects": [
+      {
+        "name": "Draw 2",
+        "spell_speed": 1,
+        "category": "ignition",
+        "once_per_turn": false,
+        "resolution": [
+          { "type": "draw", "count": 2 }
+        ]
+      }
+    ]
+  }
+]

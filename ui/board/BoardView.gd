@@ -26,6 +26,8 @@ extends Control
 const ZoneViewScene = preload("res://ui/board/ZoneView.tscn")
 const _CardSelectorScene := preload("res://ui/card/CardSelector.tscn")
 var _card_selector: CardSelector = null
+const _PileViewerScene = preload("res://ui/card/PileViewer.tscn")
+var _pile_viewer: PileViewer = null
 
 # ─── Signals ──────────────────────────────────────────────────────────────────
 # ─── Scene Node References ────────────────────────────────────────────────
@@ -129,6 +131,8 @@ enum PendingState {
 		AWAIT_ATTACK_TARGET,    ## Player clicked Attack; waiting for target card
 		AWAIT_EFFECT_TARGET,    ## Player clicked Activate; waiting for target card(s)
 		AWAIT_ZONE_SELECTION,
+		AWAIT_TRIBUTE_SELECTION, ## Player clicked Summon on a tribute monster; waiting for tribute card(s)
+		AWAIT_DISCARD_SELECTION, ## Hand limit exceeded at End Phase; waiting for discard choice(s)
 }
 var _pending_state:       PendingState  = PendingState.NONE
 var _pending_card:        CardInstance  = null   ## Card whose action is pending
@@ -136,7 +140,15 @@ var _pending_effect_idx:  int           = -1     ## Effect index for AWAIT_EFFEC
 var _pending_targets:     Array[CardInstance] = []
 var _targets_needed:      int           = 0
 var _pending_action_type: String = "" # "summon", "set", "activate"
+var _pending_tributes:    Array[CardInstance] = []   ## Accumulated tribute choices
+var _tributes_needed:     int           = 0
+var _pending_discards:    Array[CardInstance] = []   ## Accumulated discard choices
+var _discards_needed:     int           = 0
+var _pending_discard_request: InputRequest = null    ## Held so we can resolve it once enough are picked
 var _pending_slot_callback: Callable = Callable() # Called with selected slot index
+var _pending_battle_attacker: CardInstance = null
+var _pending_battle_target: CardInstance = null
+var _is_waiting_for_battle_resolution: bool = false
 
 # ─── Effect Picker ────────────────────────────────────────────────────────────
 ## Shown instead of jumping straight to targeting whenever a card has more
@@ -178,8 +190,9 @@ var _is_waiting_for_auto_pass: bool = false
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
 	#_build_field_background()
-	_connect_info_bar_buttons
-
+	_connect_info_bar_buttons()
+	_build_pile_viewer()
+	_connect_pile_buttons()
 func setup(
 		zm:          ZoneManager,
 		stack:       EffectStack,
@@ -221,6 +234,9 @@ func setup(
 	if game_director != null:
 			game_director.attack_declared.connect(_on_attack_declared)
 			game_director.battle_resolved.connect(_on_battle_resolved)
+			game_director.awaiting_input.connect(_on_awaiting_input)
+			if game_director.undo_manager != null:
+				game_director.undo_manager.snapshot_restored.connect(_on_snapshot_restored)
 
 func _clear_container(container: Control) -> void:
 	if container == null:
@@ -269,7 +285,6 @@ func _build_zone_views_from_scene() -> void:
 			var zv := ZoneViewScene.instantiate()
 			spell_grid.add_child(zv)
 			zv.setup(zone_manager.spell_zone_of(player), i, "S%d_%s" % [i,pid])
-			print(zv.z_index)
 			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
 			_slot_views["%s_main_spell_%d" % [pid, i]] = zv
 # ─── Zone View Construction ───────────────────────────────────────────────────
@@ -392,7 +407,73 @@ func reveal_hand(player: Player,zm:ZoneManager= zone_manager) -> void:
 	for card in zone_manager.hand_of(player).get_cards():
 		var view := get_or_create_card_view(card)
 		view.flip_to(true)
+# ─── Full Refresh (used after UndoManager restores a snapshot) ────────────────
 
+## Re-derives every CardView's parent/position/face-state from the CURRENT
+## ZoneManager state, with no animation. Required after UndoManager.undo()/
+## redo() because restoring a snapshot writes data directly — it does NOT
+## go through ZoneManager.move() and therefore never fires card_moved, so
+## none of BoardView's normal incremental signal handlers run. This is the
+## one place that's allowed to assume "the data is already correct, just
+## make the screen match it."
+func full_refresh() -> void:
+		## 1) Empty every slot/pile view instantly — whatever they're currently
+		##    showing may be stale or simply wrong after a restore.
+		for zv in _slot_views.values():
+				zv.remove_card(false)
+		for zv in _pile_views.values():
+				zv.remove_card(false)
+		## 2) Walk every zone in the live ZoneManager and re-place each card.
+		for zone in zone_manager._zones.values():
+				for card in zone.get_cards():
+						var view := get_or_create_card_view(card)
+						_place_card_view_for_current_zone(view, card, zone)
+		## 3) Hands are laid out separately from slot/pile views.
+		for player in players:
+				refresh_hand(player)
+		## 4) HUD reads LP/phase directly off the domain objects too — restore
+		##    wrote those fields without going through the normal signals that
+		##    would have kept these labels in sync.
+		for player in players:
+				update_lp(player, player.life_points)
+		if game_director != null and game_director.tm != null and game_director.tm.context != null:
+				update_phase(
+						game_director.tm.current_phase_name(),
+						game_director.tm.current_turn(),
+						game_director.tm.active_player().player_id
+				)
+		## 5) Glow/selection state from before the restore is meaningless now.
+		clear_all_glows()
+		deselect_all()
+		clear_zone_highlights()
+## Puts `view` into whichever ZoneView/parent matches `card`'s CURRENT zone,
+## reparenting from wherever it previously lived if necessary. Mirrors the
+## placement logic in _on_card_moved, but driven by current state rather
+## than a from/to transition, and always instant (no animation, no queue).
+func _place_card_view_for_current_zone(view: CardView, card: CardInstance, zone: Zone) -> void:
+		view.flip_to(card.is_face_up(), true)   ## true = instant, no flip animation
+		if zone.zone_type in Zone.FIELD_ZONE_TYPES:
+				var pid  := "p%d" % card.controller.player_id
+				var slot := card.slot_index
+				var key  := "%s_%s_%d" % [pid, _zone_type_key(zone.zone_type), slot]
+				var zv: ZoneView = _slot_views.get(key, null)
+				if zv != null:
+						zv.place_card(view, false)
+				return
+		if zone.zone_type in [Zone.ZoneType.GRAVEYARD, Zone.ZoneType.BANISHED,
+												   Zone.ZoneType.DECK, Zone.ZoneType.EXTRA_DECK]:
+				var pv: ZoneView = _pile_views.get(str(zone.zone_id), null)
+				if pv != null:
+						pv.place_card(view, false)
+						pv.set_count(zone.count())
+				return
+		if zone.zone_type == Zone.ZoneType.HAND:
+				if view.get_parent() != self:
+						if view.get_parent() != null:
+								view.reparent(self)
+						else:
+								add_child(view)
+				## refresh_hand() (called once per player after this loop) positions it.
 # ─── Glow / Highlight API ─────────────────────────────────────────────────────
 func highlight_summonable(cards: Array[CardInstance]) -> void:
 	clear_all_glows()
@@ -401,12 +482,7 @@ func highlight_summonable(cards: Array[CardInstance]) -> void:
 		if view:
 			view.set_glow(CardView.GlowState.SUMMONABLE)
 
-## Highlight cards that can activate effects (Yellow/Orange)
-func highlight_activatable(cards: Array) -> void:
-	for card in cards:
-		var view = _card_views.get(card.instance_id, null)
-		if view:
-			view.set_glow(CardView.GlowState.ACTIVATABLE)
+
 
 ## Highlight cards that are legal targets (Cyan)
 func highlight_targetable(targets: Array[CardInstance]) -> void:
@@ -415,6 +491,13 @@ func highlight_targetable(targets: Array[CardInstance]) -> void:
 		var view = _card_views.get(card.instance_id, null)
 		if view:
 			view.set_glow(CardView.GlowState.TARGETABLE)
+
+## Highlight cards that can activate effects (Yellow/Orange)
+func highlight_activatable(cards: Array) -> void:
+	for card in cards:
+		var view = _card_views.get(card.instance_id, null)
+		if view:
+			view.set_glow(CardView.GlowState.ACTIVATABLE)
 
 ## Remove all glow states.
 func clear_all_glows() -> void:
@@ -470,15 +553,27 @@ func update_chain_hud(links: Array) -> void:
 		chain_links_container.add_child(lbl)
 		x += 64.0
 
-
+var delay_card: CardInstance
+var delay_from: Zone
+var delay_to_zone: Zone
+var delay_reason: ZoneManager.MoveReason
 # ─── ZoneManager Signal Handlers ─────────────────────────────────────────────
-
+func delay_move()->void:
+	print("delay fired")
+	_on_card_moved(delay_card,delay_from,delay_to_zone,delay_reason)
 func _on_card_moved(
 	card: CardInstance,
 	_from: Zone,
 	to_zone: Zone,
 	reason: ZoneManager.MoveReason
 ) -> void:
+	print(card.definition.card_name, " moving card for ",reason," ",reason == 8)
+	if reason == 8:
+		delay_card    = card
+		delay_from    = _from
+		delay_to_zone = to_zone
+		delay_reason  = reason
+		return
 	var view := get_or_create_card_view(card)
 	view.kill_all_tweens()
 	if to_zone.zone_type in Zone.FIELD_ZONE_TYPES or to_zone.zone_type == Zone.ZoneType.GRAVEYARD:
@@ -602,29 +697,64 @@ func _on_triggers_pending(triggers: Array) -> void:
 ## _on_battle_resolved enqueues — guaranteeing the player sees the strike
 ## before seeing its outcome.
 func _on_attack_declared(attacker: CardInstance, target: CardInstance) -> void:
+	_pending_battle_attacker = attacker
+	_pending_battle_target = target
+	_is_waiting_for_battle_resolution = true
+	
 	var attacker_view := _card_views.get(attacker.instance_id, null)
 	if attacker_view == null:
+		_resolve_pending_battle()  # Fallback
 		return
+	
 	if target == null:
-		## Direct attack — lunge toward the opponent's LP display area
+		# Direct attack
 		var lp_anchor := p2_lp_label if attacker.controller == players[0] else p1_lp_label
-		print("enque")
 		anim_queue.enqueue(
 			func() -> Signal: return attacker_view.animate_attack_lunge(lp_anchor.global_position),
 			"attack_lunge_direct"
 		)
+		anim_queue.enqueue(func() -> void: delay_move(),"attack_complete")
+	else:
+		var target_view := _card_views.get(target.instance_id, null)
+		if target_view == null:
+			_resolve_pending_battle()  # Fallback
+			return
+		
+		var target_center :Vector2= target_view.global_position + target_view.size / 2.0
+		anim_queue.enqueue_parallel([
+			func() -> Signal: return attacker_view.animate_attack_lunge(target_center),
+			func() -> Signal: return target_view.animate_take_hit(),
+		], "attack_clash")
+		anim_queue.enqueue(func() -> void: delay_move(),"attack_complete")
+	# After the attack animations, resolve the battle
+	# This ensures the queue processes the animations BEFORE resolving
+	anim_queue.enqueue_callback(func(): 
+		_resolve_pending_battle()
+	, "resolve_battle_after_animation")
+func _resolve_pending_battle() -> void:
+	if _pending_battle_attacker == null or not _is_waiting_for_battle_resolution:
 		return
-
-	var target_view := _card_views.get(target.instance_id, null)
-	if target_view == null:
+	
+	print("Resolving battle after animation: ", _pending_battle_attacker.definition.card_name)
+	_is_waiting_for_battle_resolution = false
+	
+	var attacker = _pending_battle_attacker
+	var target = _pending_battle_target
+	
+	_pending_battle_attacker = null
+	_pending_battle_target = null
+	
+	if game_director == null:
 		return
-	print("enque")
-	var target_center :Vector2= target_view.global_position + target_view.size / 2.0
+	
+	# Create and submit the damage action
+	var resolve_action := GameAction.ResolveBattleDamageAction.make(
+		attacker.controller,
+		attacker,
+		target
+	)
+	game_director.submit_action(resolve_action)
 
-	anim_queue.enqueue_parallel([
-		func() -> Signal: return attacker_view.animate_attack_lunge(target_center),
-		func() -> Signal: return target_view.animate_take_hit(),
-	], "attack_clash")
 func _build_animation_queue() -> void:
 		anim_queue = AnimationQueue.new()
 		add_child(anim_queue)
@@ -657,7 +787,12 @@ func _on_card_clicked(view: CardView, card: CardInstance) -> void:
 		PendingState.AWAIT_EFFECT_TARGET:
 			_collect_effect_target(card)
 			return
-
+		PendingState.AWAIT_TRIBUTE_SELECTION:
+			_collect_tribute(card)
+			return
+		PendingState.AWAIT_DISCARD_SELECTION:
+			_collect_discard(card)
+			return
 	## Not in a pending state — show tooltip for local player's cards only.
 	if card.controller != local_player:
 		
@@ -785,32 +920,146 @@ func _on_tooltip_action(action: int, card: CardInstance) -> void:
 func _do_summon(card: CardInstance) -> void:
 	if game_director == null:
 		return
-	 # Check if zone selection is needed
-	var monster_zone := zone_manager.monster_zone_of(local_player)
-	var empty_slots := monster_zone.empty_slot_count()
-	
-	if empty_slots == 0:
-		print("No empty monster zones!")
+
+	## Tribute monsters need tributes chosen BEFORE we can even validate
+	## which zone to place them in — RuleEngine.can_normal_summon requires
+	## the tribute list up front.
+	if card.definition.requires_tribute():
+		_begin_tribute_selection(card)
 		return
-	
+
+	_continue_summon_after_tributes(card, [])
+
+## Shared by both the no-tribute fast path and the tribute-selection
+## completion handler. Picks (or asks for) a zone once tributes are settled.
+func _continue_summon_after_tributes(card: CardInstance, tributes: Array[CardInstance]) -> void:
+	var monster_zone := zone_manager.monster_zone_of(local_player)
+
+	## Tributes free up slots too, but RuleEngine validates that — here we
+	## only care about how many slots are open right now for placement.
+	var empty_slots := monster_zone.empty_slot_count()
+
+	if empty_slots == 0:
+		_show_error("No empty monster zones!")
+		return
+
 	if empty_slots == 1:
-		# Only one choice - place it automatically
-		game_director.normal_summon(local_player, card, [], monster_zone.first_empty_slot())
+		game_director.normal_summon(local_player, card, tributes, monster_zone.first_empty_slot())
 		refresh_hand(local_player)
 		return
-	
-	# Multiple empty zones - ask player to choose
-	_pending_state = PendingState.AWAIT_ZONE_SELECTION
-	_pending_card = card
+
+	## Multiple empty zones — ask player to choose
+	_pending_state       = PendingState.AWAIT_ZONE_SELECTION
+	_pending_card        = card
 	_pending_action_type = "summon"
-	
-	# Highlight empty monster zones
+	_pending_tributes    = tributes
+
 	clear_all_glows()
 	clear_zone_highlights()
 	highlight_empty_zones(Zone.ZoneType.MAIN_MONSTER, local_player, true)
-	
-	_show_cancel_hint("Click on an empty monster zone to summon %s" % card.definition.card_name)
 
+	_show_cancel_hint("Click on an empty monster zone to summon %s" % card.definition.card_name)
+# ─── Awaiting Input (GameDirector) ────────────────────────────────────────────
+func _on_snapshot_restored(_label: String) -> void:
+		## An undo/redo just snapped the board data directly to a prior state.
+		## Any in-progress targeting/tribute/discard selection is now describing
+		## a moment that no longer exists, so it must be abandoned rather than
+		## completed against the restored state.
+		_cancel_pending()
+		## Anything mid-flight in the animation queue was animating a transition
+		## that the restore just bypassed entirely — let it finish naturally if
+		## near-instant, but don't try to reconcile it against the new state.
+		## A full_refresh() afterward corrects any visual drift this leaves.
+		full_refresh()
+func _on_awaiting_input(request: InputRequest) -> void:
+		## Only the human's own decisions get a visual presentation here.
+		## AIController handles its own requests independently via the same
+		## signal — both listeners coexist safely since GameDirector.request_input
+		## doesn't filter by player itself.
+		if request.player != local_player:
+				return
+		match request.type:
+				InputRequest.RequestType.DISCARD_SELECTION:
+						_begin_discard_selection(request)
+				_:
+						## Other request types (target/tribute/search/position) aren't
+						## routed through GameDirector's InputRequest for the human yet —
+						## those use BoardView's own click-based flows instead. Nothing
+						## to do here for them.
+						pass
+func _begin_discard_selection(request: InputRequest) -> void:
+		_pending_state           = PendingState.AWAIT_DISCARD_SELECTION
+		_pending_discard_request = request
+		_discards_needed         = request.min_choices
+		_pending_discards.clear()
+		clear_all_glows()
+		for card in request.candidates:
+				var view := _card_views.get((card as CardInstance).instance_id, null)
+				if view:
+						view.set_glow(CardView.GlowState.TARGETABLE)
+		_show_cancel_hint("Hand limit exceeded — select %d card%s to discard." % [
+				_discards_needed, "s" if _discards_needed != 1 else ""
+		])
+		## Deliberately no Escape-to-cancel here — this isn't optional, the hand
+		## limit must be resolved before the turn can pass. _cancel_pending()
+		## still clears the visual state if called, but nothing re-triggers this
+		## request, so cancelling would strand the turn. Escape is effectively
+		## a no-op for this state in practice since the player has no legal
+		## alternative action available while it's active.
+func _collect_discard(card: CardInstance) -> void:
+		var view := _card_views.get(card.instance_id, null)
+		if view == null or view.glow_state != CardView.GlowState.TARGETABLE:
+				## Not a valid discard candidate — ignore the click, stay in this state
+				return
+		_pending_discards.append(card)
+		view.set_glow(CardView.GlowState.TARGETED)
+		if _pending_discards.size() >= _discards_needed:
+				var chosen := _pending_discards.duplicate()
+				_pending_state           = PendingState.NONE
+				_pending_discard_request = null
+				_pending_discards.clear()
+				_discards_needed         = 0
+				deselect_all()
+				clear_all_glows()
+				_hide_cancel_hint()
+				## GameDirector.resolve_input() calls request.resolve(chosen) for us —
+				## calling request.resolve() directly here too would double-fire it.
+				game_director.resolve_input(chosen)
+				refresh_hand(local_player)
+func _begin_tribute_selection(card: CardInstance) -> void:
+		var needed := card.definition.tribute_count()
+		var field  := zone_manager.monster_zone_of(local_player).get_cards()
+		if field.size() < needed:
+				_show_error("Need %d tribute%s — you only control %d monster%s." % [
+						needed, "s" if needed > 1 else "",
+						field.size(), "s" if field.size() != 1 else ""
+				])
+				return
+		_pending_state    = PendingState.AWAIT_TRIBUTE_SELECTION
+		_pending_card     = card
+		_tributes_needed  = needed
+		_pending_tributes.clear()
+		clear_all_glows()
+		for tribute_candidate in field:
+				var view := _card_views.get(tribute_candidate.instance_id, null)
+				if view:
+						view.set_glow(CardView.GlowState.TARGETABLE)
+		_show_cancel_hint("Select %d monster%s to tribute for %s, or press Escape to cancel." % [
+				needed, "s" if needed > 1 else "", card.definition.card_name
+		])
+func _collect_tribute(card: CardInstance) -> void:
+		var view := _card_views.get(card.instance_id, null)
+		if view == null or view.glow_state != CardView.GlowState.TARGETABLE:
+				## Clicked a card that isn't a valid tribute candidate — cancel
+				_cancel_pending()
+				return
+		_pending_tributes.append(card)
+		view.set_glow(CardView.GlowState.TARGETED)
+		if _pending_tributes.size() >= _tributes_needed:
+				var summon_card := _pending_card
+				var tributes     := _pending_tributes.duplicate()
+				_cancel_pending()
+				_continue_summon_after_tributes(summon_card, tributes)
 # ─── Set ──────────────────────────────────────────────────────────────────────
 
 func _do_set(card: CardInstance) -> void:
@@ -913,8 +1162,8 @@ func _begin_activate_flow(card: CardInstance) -> void:
 		return
 	# If activating a Continuous Spell/Trap from hand, need to place it first
 	if card.is_in_hand() and card.definition.is_spell() and card.definition.spell_type == CardDefinition.SpellType.CONTINUOUS:
-		_pending_state = PendingState.AWAIT_ZONE_SELECTION
-		_pending_card = card
+		_pending_state       = PendingState.AWAIT_ZONE_SELECTION
+		_pending_card        = card
 		_pending_action_type = "activate"
 		
 		clear_all_glows()
@@ -1115,6 +1364,13 @@ func _cancel_pending() -> void:
 	_pending_effect_idx = -1
 	_pending_targets.clear()
 	_targets_needed     = 0
+	_pending_tributes.clear()
+	if _card_selector and _card_selector.visible:
+		_tributes_needed     = 0
+		_pending_discards.clear()
+		_card_selector.hide()
+		_discards_needed         = 0
+		_pending_discard_request = null
 	if _card_selector and _card_selector.visible:
 		_card_selector.hide()
 
@@ -1136,7 +1392,12 @@ func _hide_cancel_hint() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
-		if event.keycode == KEY_ESCAPE and _pending_state != PendingState.NONE:
+		if event.keycode == KEY_ESCAPE \
+		and _pending_state != PendingState.NONE \
+		and _pending_state != PendingState.AWAIT_DISCARD_SELECTION:
+			## Discard-to-hand-limit is mandatory — there is no legal way to
+			## decline it, so Escape must not be able to strand TurnManager
+			## in its blocked _awaiting_discard state with no way to resume.
 			_cancel_pending()
 			get_viewport().set_input_as_handled()
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1255,22 +1516,31 @@ func _connect_info_bar_buttons() -> void:
 
 func _on_pile_clicked(player: Player, pile_type: String) -> void:
 	print("Clicked on %s's %s pile" % [player.display_name, pile_type])
-	# You can implement a popup showing the pile contents here
+	
 	var zone: Zone
+	var title: String = pile_type.to_upper()
+	
 	match pile_type:
 		"deck":
 			zone = zone_manager.deck_of(player)
+			title = "%s's Deck" % player.display_name
 		"extra":
 			zone = zone_manager.extra_deck_of(player)
+			title = "%s's Extra Deck" % player.display_name
 		"graveyard":
 			zone = zone_manager.graveyard_of(player)
+			title = "%s's Graveyard" % player.display_name
 		"banished":
 			zone = zone_manager.banished_of(player)
+			title = "%s's Banished" % player.display_name
 	
 	if zone:
-		print("  Contains %d cards" % zone.count())
-		# Emit signal to show pile viewer
-		# pile_view_requested.emit(player, pile_type, zone.get_cards())
+		var cards: Array = zone.get_cards()
+		print("  Contains %d cards" % cards.size())
+		
+		# Show the pile viewer
+		_pile_viewer.show_for(cards, pile_type, player, title)
+
 func _build_card_selector() -> void:
 	_card_selector = _CardSelectorScene.instantiate()
 	add_child(_card_selector)
@@ -1423,20 +1693,34 @@ func update_legal_glows() -> void:
 		highlight_activatable(activatable)
 	
 	# Note: Targetable glows are shown separately during targeting
+func _build_pile_viewer() -> void:
+	_pile_viewer = _PileViewerScene.instantiate()
+	add_child(_pile_viewer)
+	_pile_viewer.card_inspected.connect(_on_pile_card_inspected)
+	_pile_viewer.closed.connect(_on_pile_viewer_closed)
+	_pile_viewer.hide()
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Inner class: field divider / centre line drawing
-# ──────────────────────────────────────────────────────────────────────────────
+func _connect_pile_buttons() -> void:
+	# P1 buttons
+	if p1_gy_button:
+		p1_gy_button.pressed.connect(func(): _on_pile_clicked(players[0], "graveyard"))
+	if p1_banish_button:
+		p1_banish_button.pressed.connect(func(): _on_pile_clicked(players[0], "banished"))
+	if p1_deck_button:
+		p1_deck_button.pressed.connect(func(): _on_pile_clicked(players[0], "deck"))
+	
+	# P2 buttons
+	if p2_gy_button:
+		p2_gy_button.pressed.connect(func(): _on_pile_clicked(players[1], "graveyard"))
+	if p2_banish_button:
+		p2_banish_button.pressed.connect(func(): _on_pile_clicked(players[1], "banished"))
+	if p2_deck_button:
+		p2_deck_button.pressed.connect(func(): _on_pile_clicked(players[1], "deck"))
 
-class _FieldDivider extends Control:
-	func _draw() -> void:
-		var W := size.x
-		var mid := size.y / 2.0
+func _on_pile_card_inspected(card: CardInstance) -> void:
+	print("Inspecting card from pile: %s" % card.definition.card_name)
+	# This could open a full card inspection popup
+	card_inspect_requested.emit(card)
 
-		# Centre divider glow
-		draw_line(Vector2(0, mid), Vector2(W, mid), Color(0.3, 0.5, 0.8, 0.15), 40.0)
-		draw_line(Vector2(0, mid), Vector2(W, mid), Color(0.4, 0.6, 1.0, 0.35), 2.0)
-
-		# Faint corner triangles (field feel)
-		draw_line(Vector2(0, 0), Vector2(W, 0), Color(0.15, 0.20, 0.35, 0.3), 1.0)
-		draw_line(Vector2(0, size.y), Vector2(W, size.y), Color(0.15, 0.20, 0.35, 0.3), 1.0)
+func _on_pile_viewer_closed() -> void:
+	print("Pile viewer closed")

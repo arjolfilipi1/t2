@@ -94,6 +94,7 @@ func _boot_ui() -> void:
 	board.phase_advance_requested.connect(_on_phase_advance)
 	board.draw_requested.connect(_on_draw_pressed)
 	board.pass_priority_requested.connect(func(): gd.pass_priority(p1))
+	board.card_inspect_requested.connect(_on_card_inspect_requested)
 	# Wire GameDirector signals to HUD
 	gd.phase_changed.connect(func(_name, _turn, _player): _update_hud())
 	gd.active_player_changed.connect(func(_p): _update_hud())
@@ -292,6 +293,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			_destroy_first_p1_monster()
 		KEY_TAB:
 			_on_phase_advance()
+		KEY_Z:
+			if gd.undo():
+				print("TestBoard: Undo → %s" % gd.undo_manager.redo_label())
+			else:
+				print("TestBoard: Nothing to undo")
+		KEY_Y:
+			if gd.redo():
+				print("TestBoard: Redo → %s" % gd.undo_manager.undo_label())
+			else:
+				print("TestBoard: Nothing to redo")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -538,3 +549,11 @@ TestBoard Controls
   SPACE  Run full automated demo sequence
   Click  Select a card and print its info
 """)
+func _on_card_inspect_requested(card: CardInstance) -> void:
+	print("Card inspection requested: %s" % card.definition.card_name)
+	# You can implement a full card inspection popup here
+	# For now, just print the card details
+	print("  Type: %s" % card.definition.card_type)
+	if card.definition.is_monster():
+		print("  ATK: %d, DEF: %d" % [card.get_atk(), card.get_def()])
+	print("  Text: %s" % card.definition.card_text)

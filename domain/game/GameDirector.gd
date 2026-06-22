@@ -64,6 +64,10 @@ var zm:    ZoneManager  = null
 var stack: EffectStack  = null
 var tm:    TurnManager  = null
 
+## Snapshot-based undo/redo. Captures board state before every action;
+## restoring snaps directly to a prior state rather than computing inverse
+## mutations. See UndoManager.gd for the full design rationale.
+var undo_manager: UndoManager = null
 # ─── Players ──────────────────────────────────────────────────────────────────
 
 var players: Array[Player] = []
@@ -80,34 +84,7 @@ var _next_action_id: int = 0
 
 ## Set when GameDirector is waiting for the player to make a UI decision.
 var _pending_input: InputRequest = null
-# ─── Auto-Advance ──────────────────────────────────────────────────────────────
-##
-## Automatically advances the phase when the active player has no possible
-## legal action left to take. This only applies to phases where waiting for
-## input is pointless — DRAW, STANDBY, BATTLE_START (instant), and BATTLE_STEP
-## once no attacker has a legal target remaining.
-##
-## Main Phase 1 and Main Phase 2 are EXCLUDED for the human player by design:
-## even if RuleEngine reports zero legal actions, the human should still see
-## the phase and press End Phase themselves. Auto-advancing Main Phase would
-## be confusing — "did my turn just skip past me?"
-##
-## For the AI, Main Phase is driven entirely by AIController's own planner,
-## which explicitly calls advance_phase() once it has finished acting — so
-## this method does not need to (and should not) auto-advance Main Phase for
-## the AI either; doing so would race against the AI's action queue.
-## Phases that are always safe to auto-advance for ANY player, since they
-## never require a human decision.
-const _ALWAYS_AUTO_ADVANCE := [
-		TurnContext.Phase.STANDBY,
-		TurnContext.Phase.BATTLE_START,
-		TurnContext.Phase.BATTLE_END,
-]
-## Phases that are auto-advanced only when the active player has no legal
-## action remaining. Main Phases are deliberately NOT in this list.
-const _CONDITIONAL_AUTO_ADVANCE := [
-		TurnContext.Phase.BATTLE_STEP,
-]
+
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
 ## Call once after add_child(). Players must already have decks loaded via
@@ -129,7 +106,10 @@ func setup(player_list: Array[Player]) -> void:
 	stack.setup(players, zm)
 	tm.setup(players, zm, stack)
 	tm.turn_started.connect(_on_turn_started)
-
+	
+	undo_manager = UndoManager.new()
+	undo_manager.setup(zm, tm, stack, players)
+	
 	# Register service locator for EffectResolutionStep
 	EffectResolutionStep.zone_manager = zm
 	EffectResolutionStep.effect_stack = stack
@@ -140,6 +120,7 @@ func setup(player_list: Array[Player]) -> void:
 	tm.active_player_changed.connect(_on_active_player_changed)
 	tm.game_over.connect(_on_game_over)
 	tm.card_drawn.connect(_on_card_drawn)
+	tm.hand_limit_exceeded.connect(_on_hand_limit_exceeded)
 	stack.stack_idle.connect(_on_stack_idle)
 	stack.triggers_pending.connect(_on_triggers_pending)
 
@@ -150,6 +131,7 @@ func _on_turn_started(turn:int,_player:Player)->void:
 func start_game() -> void:
 	action_log.clear()
 	_next_action_id = 0
+	undo_manager.clear()
 	tm.start_game()
 
 # ─── Action Submission ────────────────────────────────────────────────────────
@@ -173,7 +155,11 @@ func submit_action(action: GameAction) -> bool:
 	# Inject stack ref for actions that need it (NormalSummonAction triggers)
 	if action is GameAction.NormalSummonAction:
 		action._stack_ref = stack
-
+	# Capture undo point — BEFORE execute() mutates anything. Only captured
+	# when the chain is idle (UndoManager itself also enforces this; the
+	# check here just avoids the warning print on the common path).
+	if stack.is_idle():
+			undo_manager.capture_before_action(action.describe())
 	# Execute
 	action.execute(zm, tm, stack)
 	action_log.append(action)
@@ -182,6 +168,7 @@ func submit_action(action: GameAction) -> bool:
 	# Post-execution hooks
 	_post_action(action)
 	_try_auto_advance()
+	
 	return true
 
 ## Convenience: submit and return the RuleResult without executing.
@@ -218,7 +205,21 @@ func pass_priority(player: Player) -> bool:
 
 func advance_phase(player: Player) -> bool:
 	return submit_action(GameAction.AdvancePhaseAction.make(player))
-
+# ─── Undo / Redo ──────────────────────────────────────────────────────────────
+## Thin wrappers around UndoManager — kept here so callers only ever talk
+## to GameDirector and never need a direct reference to UndoManager itself.
+## Reverts the board to the state immediately before the last executed
+## action. Returns false if there is nothing to undo (or a chain is open).
+func undo() -> bool:
+		return undo_manager.undo()
+## Re-applies the most recently undone action. Returns false if there is
+## nothing to redo (or a chain is open).
+func redo() -> bool:
+		return undo_manager.redo()
+func can_undo() -> bool:
+		return undo_manager.can_undo()
+func can_redo() -> bool:
+		return undo_manager.can_redo()
 # ─── Query Helpers (read-only, for UI) ────────────────────────────────────────
 
 ## Current turn context snapshot.
@@ -269,7 +270,8 @@ func _try_advance_to_damage_step() -> void:
 		return
 	if tm.current_attacker() == null:
 		return
-	# Both players passed in BATTLE_STEP with an attacker declared → damage step
+
+
 	tm.begin_damage_step()
 	var resolve_action := GameAction.ResolveBattleDamageAction.make(
 		tm.active_player(),
@@ -304,6 +306,7 @@ func is_awaiting_input() -> bool:
 # ─── Post-Action Hooks ────────────────────────────────────────────────────────
 
 func _post_action(action: GameAction) -> void:
+	print("action finished:",action.describe())
 	# Emit semantic signals for actions that have board meaning
 	if action is GameAction.NormalSummonAction:
 		card_summoned.emit(action.card, true)
@@ -313,6 +316,35 @@ func _post_action(action: GameAction) -> void:
 	elif action is GameAction.ResolveBattleDamageAction:
 		var result := RuleEngine.resolve_battle(action.attacker, action.target)
 		battle_resolved.emit(result)
+		
+# ─── Auto-Advance ──────────────────────────────────────────────────────────────
+##
+## Automatically advances the phase when the active player has no possible
+## legal action left to take. This only applies to phases where waiting for
+## input is pointless — DRAW, STANDBY, BATTLE_START (instant), and BATTLE_STEP
+## once no attacker has a legal target remaining.
+##
+## Main Phase 1 and Main Phase 2 are EXCLUDED for the human player by design:
+## even if RuleEngine reports zero legal actions, the human should still see
+## the phase and press End Phase themselves. Auto-advancing Main Phase would
+## be confusing — "did my turn just skip past me?"
+##
+## For the AI, Main Phase is driven entirely by AIController's own planner,
+## which explicitly calls advance_phase() once it has finished acting — so
+## this method does not need to (and should not) auto-advance Main Phase for
+## the AI either; doing so would race against the AI's action queue.
+## Phases that are always safe to auto-advance for ANY player, since they
+## never require a human decision.
+const _ALWAYS_AUTO_ADVANCE := [
+		TurnContext.Phase.STANDBY,
+		TurnContext.Phase.BATTLE_START,
+		TurnContext.Phase.BATTLE_END,
+]
+## Phases that are auto-advanced only when the active player has no legal
+## action remaining. Main Phases are deliberately NOT in this list.
+const _CONDITIONAL_AUTO_ADVANCE := [
+		TurnContext.Phase.BATTLE_STEP,
+]
 func _try_auto_advance() -> void:
 	if tm == null or tm.context == null:
 		return
@@ -382,7 +414,7 @@ func _on_card_drawn(player: Player, _card: CardInstance) -> void:
 
 func _on_stack_idle() -> void:
 	## Chain fully resolved — check if we should auto-advance to damage step
-	_try_advance_to_damage_step()
+	#_try_advance_to_damage_step()
 	_try_auto_advance()
 func _on_triggers_pending(triggers: Array) -> void:
 	## Ask the local player about optional triggers via InputRequest
@@ -402,6 +434,24 @@ func _on_triggers_pending(triggers: Array) -> void:
 		stack.confirm_optional_triggers(choices)
 	)
 	request_input(req)
+func _on_hand_limit_exceeded(player: Player, excess_count: int, hand_cards: Array) -> void:
+		## Always routed through InputRequest — for the human this surfaces a
+		## UI prompt; for the AI, AIController._on_awaiting_input picks it up
+		## via the same awaiting_input signal and resolves it with its own
+		## lowest-value heuristic (_resolve_discard_selection). Either way,
+		## confirm_hand_discard() is what actually performs the moves and lets
+		## TurnManager resume passing the turn.
+		var typed_hand: Array[CardInstance] = []
+		for c in hand_cards:
+				typed_hand.append(c)
+		var req := InputRequest.discard_selection(player, typed_hand, excess_count,
+				func(chosen: Array):
+						var typed_chosen: Array[CardInstance] = []
+						for c in chosen:
+								typed_chosen.append(c)
+						tm.confirm_hand_discard(player, typed_chosen)
+		)
+		request_input(req)
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
 

@@ -41,6 +41,7 @@ signal queue_finished()
 ## Emitted after each individual queued item finishes (for debug/HUD step-through).
 signal item_finished(label: String)
 
+signal attack_animation_complete()
 # ─── Internal State ───────────────────────────────────────────────────────────
 
 ## Each entry is a Dictionary: { "callables": Array[Callable], "label": String }

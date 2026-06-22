@@ -167,7 +167,8 @@ func bind(card_instance: CardInstance) -> void:
 			card.stat_changed.connect(_on_stat_changed)
 			card.counter_changed.connect(_on_counter_changed)
 			_refresh_display()
-
+	else:
+		ready.connect(_refresh_display,CONNECT_ONE_SHOT)
 # ─── Display Refresh ──────────────────────────────────────────────────────────
 
 func _refresh_display() -> void:
