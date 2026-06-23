@@ -119,7 +119,27 @@ var card: CardInstance = null     ## The domain object this view represents
 var glow_state: GlowState = GlowState.NONE
 var _is_face_up: bool = false
 var _is_hovered: bool = false
-var _tween: Tween = null
+# ─── Animation Priority System ──────────────────────────────────────────────────
+enum AnimPriority {
+	IDLE = 0,
+	HOVER = 1,
+	MOVE = 2,
+	EFFECT = 3,
+	ATTACK = 4,
+	DESTROY = 5,  # Highest - can't be interrupted
+}
+
+# ─── Animation State ──────────────────────────────────────────────────────────
+var _current_priority: AnimPriority = AnimPriority.IDLE
+var _is_performing_action: bool = false
+
+# Separate tweens for different animation types
+var _hover_tween: Tween = null
+var _move_tween: Tween = null
+var _action_tween: Tween = null
+var _flip_tween: Tween = null
+var _glow_tween: Tween = null
+
 
 # ─── Initialization ───────────────────────────────────────────────────────────
 
@@ -134,16 +154,22 @@ func _ready() -> void:
 
 	selection_border.visible = false
 	counter_badge.visible    = false
-	_apply_glow_shader()
+	#_apply_glow_shader()
 
 	# If bind() was called before we entered the tree, finish wiring now.
 	if card != null:
-		if not card.stat_changed.is_connected(_on_stat_changed):
-			card.stat_changed.connect(_on_stat_changed)
-		if not card.counter_changed.is_connected(_on_counter_changed):
-			card.counter_changed.connect(_on_counter_changed)
+		_connect_card_signals()
 		_refresh_display()
 	
+		
+
+func _connect_card_signals() -> void:
+	if card == null:
+		return
+	if not card.stat_changed.is_connected(_on_stat_changed):
+		card.stat_changed.connect(_on_stat_changed)
+	if not card.counter_changed.is_connected(_on_counter_changed):
+		card.counter_changed.connect(_on_counter_changed)
 
 ## Bind this view to a CardInstance.
 ## Safe to call before or after the node enters the scene tree.
@@ -164,8 +190,7 @@ func bind(card_instance: CardInstance) -> void:
 		if card == null:
 			_show_empty()
 		else:
-			card.stat_changed.connect(_on_stat_changed)
-			card.counter_changed.connect(_on_counter_changed)
+			_connect_card_signals()
 			_refresh_display()
 	else:
 		ready.connect(_refresh_display,CONNECT_ONE_SHOT)
@@ -273,41 +298,52 @@ func _apply_position_rotation() -> void:
 # ─── Flip Animation ───────────────────────────────────────────────────────────
 
 ## Animate flip from current face state to the new one.
-func flip_to(face_up: bool, instant: bool = false) -> void:
-	if is_node_ready():
-		if _is_face_up == face_up:
-			return
-		_is_face_up = face_up
-		if not face_up:
-			rotation = 0.0
-			z_index = 3
-		if instant:
-			front_face.visible = face_up
-			back_face.visible  = not face_up
-			return
+func flip_to(face_up: bool, instant: bool = false) -> Signal:
+	if _is_face_up == face_up or not is_node_ready():
+		return _create_instant_signal()
+	
+	_is_face_up = face_up
+	set_priority(AnimPriority.MOVE)
 
+	if instant:
+		front_face.visible = face_up
+		back_face.visible = not face_up
+		set_priority(AnimPriority.IDLE)
+		return _create_instant_signal()
 
-		if _tween and _tween.is_valid():
-			_tween.kill()
+	_kill_all_tweens()
+	var tw := create_tween()
+	tw.set_ease(Tween.EASE_IN_OUT)
+	tw.set_trans(Tween.TRANS_SINE)
 
-		_tween = create_tween()
-		_tween.set_ease(Tween.EASE_IN_OUT)
-		_tween.set_trans(Tween.TRANS_SINE)
+	tw.tween_property(pivot, "scale:x", 0.0, FLIP_DURATION * 0.5)
+	tw.tween_callback(func():
+		front_face.visible = face_up
+		back_face.visible = not face_up
+	)
+	tw.tween_property(pivot, "scale:x", 1.0, FLIP_DURATION * 0.5)
 
-	# Phase 1: rotate to 90° (edge-on)
-		_tween.tween_property(pivot, "scale:x", 0.0, FLIP_DURATION * 0.5)
+	_flip_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_flip_tween = null
+	)
 
-		# Swap face at the midpoint
-		_tween.tween_callback(func():
-			front_face.visible = face_up
-			back_face.visible  = not face_up
-		)
+	return tw.finished
 
-		# Phase 2: rotate from 90° back to 0°
-		_tween.tween_property(pivot, "scale:x", 1.0, FLIP_DURATION * 0.5)
-	else:
-		_is_face_up = face_up
-		return
+func _create_instant_signal() -> Signal:
+	var helper := _InstantSignalHelper.new()
+	add_child(helper)
+	helper.fire()
+	return helper.done
+class _InstantSignalHelper extends Node:
+	signal done()
+	func fire() -> void:
+		call_deferred("_emit_and_free")
+	func _emit_and_free() -> void:
+		done.emit()
+		queue_free()
+
 # ─── Glow State ───────────────────────────────────────────────────────────────
 
 func set_glow(new_state: GlowState) -> void:
@@ -319,17 +355,19 @@ func set_glow(new_state: GlowState) -> void:
 func _update_glow() -> void:
 	var color: Color = GLOW_COLORS[glow_state]
 	var pulse_speed: float = GLOW_PULSE_SPEED.get(glow_state, 1.0)
-	
+
 	if glow_rect.material and glow_rect.material is ShaderMaterial:
 		glow_rect.material.set_shader_parameter(&"glow_color", color)
 		glow_rect.material.set_shader_parameter(&"glow_enabled", glow_state != GlowState.NONE)
 		glow_rect.material.set_shader_parameter(&"pulse_speed", pulse_speed)
+		glow_rect.material.set_shader_parameter(&"card_w",CARD_W)
+		glow_rect.material.set_shader_parameter(&"card_h",CARD_H)
 	
 	glow_rect.visible = glow_state != GlowState.NONE
 	
 	# Start/stop pulse animation
-	if _tween and _tween.is_valid():
-		_tween.kill()
+	if _glow_tween and _glow_tween.is_valid():
+		_glow_tween.kill()
 	
 	if glow_state in [GlowState.SUMMONABLE, GlowState.ACTIVATABLE, GlowState.TARGETABLE, GlowState.CHAIN_LINK]:
 		_start_pulse_animation(pulse_speed)
@@ -357,37 +395,8 @@ func _start_pulse_animation(speed: float = 1.0) -> void:
 
 func _apply_glow_shader() -> void:
 	# Inline shader — no external .gdshader file needed
-	var shader := Shader.new()
-	shader.code = """
-shader_type canvas_item;
-
-uniform vec4  glow_color : source_color = vec4(0.2, 1.0, 0.3, 1.0);
-uniform float glow_intensity : hint_range(0.0, 2.0) = 1.0;
-uniform bool  glow_enabled = false;
-uniform float card_w = 100.0;
-uniform float card_h = 145.0;
-
-void fragment() {
-	if (!glow_enabled) {
-		COLOR = vec4(0.0);
-	}
-
-	// Normalized UV: 0,0 = top-left, 1,1 = bottom-right
-	vec2 uv = UV;
-
-	// Distance from nearest edge
-	float dx = min(uv.x, 1.0 - uv.x) * card_w;
-	float dy = min(uv.y, 1.0 - uv.y) * card_h;
-	float edge_dist = min(dx, dy);
-
-	// Glow band: strong within 8px of edge, fading outward
-	float band = 8.0;
-	float alpha = clamp(1.0 - edge_dist / band, 0.0, 1.0);
-	alpha = pow(alpha, 1.5) * glow_intensity;
-
-	COLOR = vec4(glow_color.rgb, alpha * glow_color.a);
-}
-"""
+	var shader :Shader = glow_rect.material.shader
+	
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	mat.set_shader_parameter(&"card_w", CARD_W)
@@ -397,14 +406,40 @@ void fragment() {
 	glow_rect.position = Vector2.ZERO
 
 # ─── Move Animation ───────────────────────────────────────────────────────────
-func kill_all_tweens() ->void:
-	if _tween and _tween.is_valid():
-		_tween.kill()
-		_tween=null
+func _kill_all_tweens() -> void:
+	if _hover_tween and _hover_tween.is_valid():
+		_hover_tween.kill()
+		_hover_tween = null
+	if _move_tween and _move_tween.is_valid():
+		_move_tween.kill()
+		_move_tween = null
+	if _action_tween and _action_tween.is_valid():
+		_action_tween.kill()
+		_action_tween = null
+	if _flip_tween and _flip_tween.is_valid():
+		_flip_tween.kill()
+		_flip_tween = null
+func can_interrupt_with(priority: AnimPriority) -> bool:
+	return priority > _current_priority
+
+func set_priority(priority: AnimPriority) -> void:
+	_current_priority = priority
+	if priority >= AnimPriority.MOVE:
+		# Kill hover when we start a high-priority animation
+		_kill_hover_tween()
+
+func _kill_hover_tween() -> void:
+	if _hover_tween and _hover_tween.is_valid():
+		_hover_tween.kill()
+		_hover_tween = null
+
+
 	
 ## Animate this card moving to a new global position.
 ## Called by BoardView after it repositions the card's parent container.
 func animate_move_to(target_global: Vector2) -> Signal:
+	set_priority(AnimPriority.MOVE)
+	_kill_hover_tween()
 	var start := global_position
 	var tw    := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
@@ -412,18 +447,32 @@ func animate_move_to(target_global: Vector2) -> Signal:
 	tw.tween_method(func(t: float):
 		global_position = start.lerp(target_global, t)
 	, 0.0, 1.0, MOVE_DURATION)
+	_move_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_move_tween = null
+	)
 	return tw.finished
 ## Destruction burst: scale down and fade, then call done_callback.
 func animate_destroy() -> Signal:
+	set_priority(AnimPriority.DESTROY)
+	_kill_all_tweens()
 	var tw := create_tween()
 	tw.set_parallel(true)
 	tw.tween_property(self, "modulate:a", 0.0, 0.35)
 	tw.tween_property(self, "scale", Vector2(1.4, 1.4), 0.2)
 	tw.chain().tween_property(self, "scale", Vector2(0.0, 0.0), 0.15)
+	_action_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_action_tween = null
+	)
+
 	return tw.finished
 ## Summon pop-in: start slightly scaled down, bounce up.
 func animate_summon() -> Signal:
-	kill_all_tweens()
+	set_priority(AnimPriority.MOVE)
+	_kill_hover_tween()
 	_is_hovered = false
 	scale = Vector2(0.6, 0.6)
 	modulate.a = 0.0
@@ -433,6 +482,12 @@ func animate_summon() -> Signal:
 	tw.set_trans(Tween.TRANS_BACK)
 	tw.tween_property(self, "scale", Vector2.ONE, 0.3)
 	tw.tween_property(self, "modulate:a", 1.0, 0.2)
+	_action_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_action_tween = null
+	)
+
 	return tw.finished
 	
 # ─── Attack Animation ─────────────────────────────────────────────────────────
@@ -443,10 +498,11 @@ func animate_summon() -> Signal:
 ## or LP damage feedback right after impact.
 func animate_attack_lunge(target_global: Vector2) -> Signal:
 	print("animating attack for ",card.definition.card_name)
+	set_priority(AnimPriority.ATTACK)
+	_kill_hover_tween()
+	
 	var home      := global_position
 	var direction := (target_global - home)
-	## Lunge 60% of the way to the target, not all the way — the card
-	## should look like it's striking, not swapping places.
 	var lunge_pos := home + direction * 0.6
 
 	var tw := create_tween()
@@ -454,17 +510,19 @@ func animate_attack_lunge(target_global: Vector2) -> Signal:
 	tw.set_trans(Tween.TRANS_QUAD)
 	tw.tween_property(self, "global_position", lunge_pos, 0.18)
 	tw.tween_property(self, "scale", Vector2(1.12, 1.12), 0.06)
-	## Brief hold at impact
 	tw.tween_interval(0.08)
 	tw.tween_property(self, "global_position", home, 0.22) \
 		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
 	tw.parallel().tween_property(self, "scale", Vector2.ONE, 0.22)
+	_action_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_action_tween = null
+	)
 	return tw.finished
 
-## Quick white flash + shake — used on the card that TAKES damage in battle
-## (whether or not it is destroyed afterward). Call this on the defender
-## simultaneously with the attacker's lunge for simultaneous impact.
 func animate_take_hit() -> Signal:
+	set_priority(AnimPriority.ATTACK)
 	var home := position
 	var tw   := create_tween()
 	tw.set_parallel(false)
@@ -480,7 +538,11 @@ func animate_take_hit() -> Signal:
 		var offset := Vector2((4.0 if i % 2 == 0 else -4.0), 0)
 		shake_tw.tween_property(self, "position", home + offset, 0.03)
 	shake_tw.tween_property(self, "position", home, 0.03)
-
+	_action_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_action_tween = null
+	)
 	return tw.finished
 
 # ─── Effect Activation / Resolution Animation ─────────────────────────────────
@@ -490,8 +552,7 @@ func animate_take_hit() -> Signal:
 ## marks the *moment* of activation rather than the held state while it
 ## sits on the chain.
 func animate_effect_activate() -> Signal:
-	## Reuse the glow rect for a one-shot bright pulse on top of whatever
-	## standing glow state is already set.
+	set_priority(AnimPriority.EFFECT)
 	var original_state := glow_state
 	set_glow(GlowState.CHAIN_LINK)
 
@@ -505,6 +566,11 @@ func animate_effect_activate() -> Signal:
 	var flash_tw := create_tween()
 	flash_tw.tween_property(self, "modulate", Color(1.3, 1.3, 1.3), 0.08)
 	flash_tw.tween_property(self, "modulate", Color.WHITE, 0.12)
+	_action_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_action_tween = null
+	)
 
 	return tw.finished
 
@@ -512,6 +578,7 @@ func animate_effect_activate() -> Signal:
 ## a soft outward ring rather than a scale pulse, signalling "effect has
 ## taken place" rather than "effect has been declared".
 func animate_effect_resolve() -> Signal:
+	set_priority(AnimPriority.EFFECT)
 	var ring := _ResolveRing.new()
 	ring.size     = Vector2(CARD_W, CARD_H)
 	ring.position = Vector2.ZERO
@@ -523,6 +590,11 @@ func animate_effect_resolve() -> Signal:
 		ring.queue_redraw()
 	, 0.0, 1.0, 0.4)
 	tw.tween_callback(func(): ring.queue_free())
+	_action_tween = tw
+	tw.finished.connect(func():
+		set_priority(AnimPriority.IDLE)
+		_action_tween = null
+	)
 
 	return tw.finished
 # ─── Selection ────────────────────────────────────────────────────────────────
@@ -533,25 +605,35 @@ func set_selected(selected: bool) -> void:
 		set_glow(GlowState.SELECTED)
 	else:
 		set_glow(GlowState.NONE)
-
+func debug_glow()->void:
+	print("gr pos:",glow_rect.position)
+	print("gr size:",glow_rect.size)
+	print("cv size:",size)
+	print("cv po:",pivot_offset)
 # ─── Hover ────────────────────────────────────────────────────────────────────
 
 func _on_mouse_entered() -> void:
+	if _current_priority >= AnimPriority.MOVE:
+		return
 	if _is_hovered:
 		return
-	if _tween and _tween.is_valid():
-		_tween.kill()
+	if _hover_tween and _hover_tween.is_valid():
+		_hover_tween.kill()
 	_is_hovered = true
+	set_priority(AnimPriority.HOVER)
+	
 	var tw := create_tween()
-	tw.set_ease(Tween.EASE_OUT)
+	tw.set_ease(Tween.EASE_OUT_IN)
 	tw.tween_property(self, "position:y", position.y + HOVER_LIFT, 0.12)
-	# Scale slightly
 	tw.parallel().tween_property(self, "scale", Vector2(1.06, 1.06), 0.12)
-	_tween = tw
+	_hover_tween = tw
 	z_index = Z_INDEX_HOVER
 func _on_mouse_exited() -> void:
+	if _current_priority >= AnimPriority.MOVE:
+		return
 	if not _is_hovered:
 		return
+	_kill_hover_tween()
 	var target_y_pos: float
 	if card.is_on_field() or card.is_banished() or card.is_in_graveyard():
 		target_y_pos = 0.0
@@ -559,23 +641,17 @@ func _on_mouse_exited() -> void:
 		target_y_pos = position.y - HOVER_LIFT
 	_is_hovered = false
 	var tw := create_tween()
-	tw.set_ease(Tween.EASE_OUT)
+	tw.set_ease(Tween.EASE_OUT_IN)
 	tw.tween_property(self, "position:y",target_y_pos , 0.12)
 	tw.parallel().tween_property(self, "scale", Vector2.ONE, 0.12)
-	_tween = tw
-	if is_on_field():
-		z_index = Z_INDEX_FIELD
-	else:
-		z_index = Z_INDEX_HAND
+	_hover_tween = tw
+	z_index = Z_INDEX_FIELD if card.is_on_field() else Z_INDEX_HAND
 func is_on_field() -> bool:
 	if card == null:
 		return false
 	return card.is_on_field()
-
 # ─── Input ────────────────────────────────────────────────────────────────────
-
 func _on_gui_input(event: InputEvent) -> void:
-
 	if event is InputEventMouseButton:
 		if event.pressed:
 			if event.button_index == MOUSE_BUTTON_LEFT:
@@ -606,12 +682,15 @@ func _attribute_color(attr: CardDefinition.Attribute) -> Color:
 		CardDefinition.Attribute.DIVINE: return Color(0.90, 0.75, 0.20)
 	return Color(0.3, 0.3, 0.3)
 func reset_for_field() ->void:
-	kill_all_tweens()
+	_kill_all_tweens()
+	_is_performing_action = false
+	set_priority(AnimPriority.IDLE)
 	rotation =0.0
 	z_index = Z_INDEX_FIELD
 	_is_hovered = false
 	scale = Vector2.ONE
 	position = Vector2.ZERO
+	modulate = Color.WHITE
 func _to_string() -> String:
 	var name := card.definition.card_name if card else "empty"
 	return "CardView(%s)" % name

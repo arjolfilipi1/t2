@@ -29,7 +29,7 @@ const CARD_SPACING = 6
 @onready var monster_button: Button = $Panel/VBoxContainer/FilterContainer/MonsterButton
 @onready var spell_button: Button = $Panel/VBoxContainer/FilterContainer/SpellButton
 @onready var trap_button: Button = $Panel/VBoxContainer/FilterContainer/TrapButton
-
+const CARD_DISPLAY_SCENE = preload("res://ui/card/CardDisplay.tscn")
 # ─── State ────────────────────────────────────────────────────────────────────
 
 var _cards: Array = []
@@ -161,7 +161,9 @@ func _build_grid() -> void:
 	
 	# Create card slots
 	for card in _filtered_cards:
-		var slot = _create_card_slot(card)
+		#var slot = _create_card_slot(card)
+		var slot = CARD_DISPLAY_SCENE.instantiate() as CardDisplay
+		slot.set_card(card)
 		card_grid.add_child(slot)
 		_card_views[card.instance_id] = slot
 

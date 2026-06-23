@@ -187,12 +187,39 @@ var _auto_pass_delay: float = 1.0 # 1 second delay
 ## Tracks if we're waiting for an auto-pass
 var _is_waiting_for_auto_pass: bool = false
 
+#hand containers 
+var _hand_manager_p1: HandManager = null
+var _hand_manager_p2: HandManager = null
+var _hand_container: Control = null
+
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
 	#_build_field_background()
 	_connect_info_bar_buttons()
 	_build_pile_viewer()
 	_connect_pile_buttons()
+	var board_area := Control.new()
+	board_area.name = "BoardArea"
+	board_area.layout_mode = 1
+	board_area.anchors_preset = 15
+	board_area.anchor_right = 1.0
+	board_area.anchor_bottom = 1.0
+	board_area.mouse_filter = Control.MOUSE_FILTER_STOP
+	board_area.mouse_entered.connect(_on_board_area_entered)
+	board_area.mouse_exited.connect(_on_board_area_exited)
+	add_child(board_area)
+	_setup_hands()
+func _on_board_area_entered() -> void:
+	# Hide hand when mouse enters board area
+	if _hand_manager_p1:
+		_hand_manager_p1.hide_hand()
+
+func _on_board_area_exited() -> void:
+	# Show hand again when mouse leaves board area
+	# But only if not expanded
+	if _hand_manager_p1 and not _hand_manager_p1._is_expanded:
+		_hand_manager_p1.show_hand()
+
 func setup(
 		zm:          ZoneManager,
 		stack:       EffectStack,
@@ -203,9 +230,9 @@ func setup(
 	zone_manager = zm
 	effect_stack = stack
 	players      = player_list
-	print(players)
 	game_director = gd
 	local_player  = player_list[0]
+	
 	_build_animation_queue()
 	if pass_button:
 		pass_button.pressed.connect(func():pass_priority_requested.emit())
@@ -216,6 +243,7 @@ func setup(
 	if tooltip:
 		tooltip.action_selected.connect(_on_tooltip_action)
 	_build_effect_picker()
+	
 	# Connect to ZoneManager
 	zone_manager.card_moved.connect(_on_card_moved)
 	zone_manager.zone_changed.connect(_on_zone_changed)
@@ -374,27 +402,12 @@ func get_pile_view_for_zone(zone: Zone) -> ZoneView:
 
 ## Re-lays out all cards in P1's hand in a fan/row.
 func refresh_hand(player: Player) -> void:
-	var hand_zone := zone_manager.hand_of(player)
-	var cards     := hand_zone.get_cards()
-	var n         := cards.size()
-	if n == 0:
-		return
-	var hand_y = HAND_Y_P1 if player == players[0] else HAND_Y_P2
-	var total_w   := n * (CardView.CARD_W + 4)
-	var start_x   := (VIEWPORT_W - total_w) / 2.0
+	var hand_zone = zone_manager.hand_of(player)
+	if player == players[0]:
+		_hand_manager_p1.refresh_hand(hand_zone)
+	else:
+		_hand_manager_p2.refresh_hand(hand_zone)
 
-	for i in n:
-		var card = cards[i]
-		var view = get_or_create_card_view(card)
-		if view.get_parent() != self:
-			continue
-		# Subtle fan: slight Y offset and rotation for hand feel
-		var t      = float(i) / max(n - 1, 1)
-		var arc_y  := sin(t * PI) * (-12.0 if player == players[0] else 12.0 )  ## Cards arc upward at centre
-		var rot    = lerp(-4.0, 4.0, t)     ## Gentle spread rotation
-		view.position = Vector2(start_x + i * (CardView.CARD_W + 4), hand_y + arc_y)
-		view.rotation  = deg_to_rad(rot)
-		view.z_index = CardView.Z_INDEX_HAND
 ## Flip all hand cards face-down (on request).
 func conceal_hand(player: Player) -> void:
 	for card in zone_manager.hand_of(player).get_cards():
@@ -558,24 +571,28 @@ var delay_from: Zone
 var delay_to_zone: Zone
 var delay_reason: ZoneManager.MoveReason
 # ─── ZoneManager Signal Handlers ─────────────────────────────────────────────
-func delay_move()->void:
+func delay_move()->Signal:
 	print("delay fired")
 	_on_card_moved(delay_card,delay_from,delay_to_zone,delay_reason)
+	return anim_queue.attack_animation_complete
 func _on_card_moved(
 	card: CardInstance,
 	_from: Zone,
 	to_zone: Zone,
 	reason: ZoneManager.MoveReason
 ) -> void:
+	print("moved to: ", to_zone.zone_id, " stack: ", get_stack())
 	print(card.definition.card_name, " moving card for ",reason," ",reason == 8)
-	if reason == 8:
+	if reason == 8 and not _is_waiting_for_battle_resolution:
+		
 		delay_card    = card
 		delay_from    = _from
 		delay_to_zone = to_zone
 		delay_reason  = reason
+		print("move to grave delayed ",_is_waiting_for_battle_resolution)
 		return
 	var view := get_or_create_card_view(card)
-	view.kill_all_tweens()
+
 	if to_zone.zone_type in Zone.FIELD_ZONE_TYPES or to_zone.zone_type == Zone.ZoneType.GRAVEYARD:
 		view.reset_for_field()  
 	# Flip logic — enqueued so it never overlaps a still-playing prior animation
@@ -623,6 +640,7 @@ func _on_card_moved(
 				anim_queue.enqueue(func() -> Signal: return view.animate_summon(), "summon")
 	elif to_zone.zone_type in [Zone.ZoneType.GRAVEYARD, Zone.ZoneType.BANISHED,
 								Zone.ZoneType.DECK, Zone.ZoneType.EXTRA_DECK]:
+		
 		var pv: ZoneView = _pile_views.get(str(to_zone.zone_id), null)
 		if pv != null:
 			pv.place_card(view, false)
@@ -713,7 +731,7 @@ func _on_attack_declared(attacker: CardInstance, target: CardInstance) -> void:
 			func() -> Signal: return attacker_view.animate_attack_lunge(lp_anchor.global_position),
 			"attack_lunge_direct"
 		)
-		anim_queue.enqueue(func() -> void: delay_move(),"attack_complete")
+		anim_queue.enqueue(func() -> Signal: return delay_move(),"attack_complete")
 	else:
 		var target_view := _card_views.get(target.instance_id, null)
 		if target_view == null:
@@ -725,7 +743,7 @@ func _on_attack_declared(attacker: CardInstance, target: CardInstance) -> void:
 			func() -> Signal: return attacker_view.animate_attack_lunge(target_center),
 			func() -> Signal: return target_view.animate_take_hit(),
 		], "attack_clash")
-		anim_queue.enqueue(func() -> void: delay_move(),"attack_complete")
+		anim_queue.enqueue(func() -> Signal: return delay_move(),"attack_complete")
 	# After the attack animations, resolve the battle
 	# This ensures the queue processes the animations BEFORE resolving
 	anim_queue.enqueue_callback(func(): 
@@ -754,9 +772,11 @@ func _resolve_pending_battle() -> void:
 		target
 	)
 	game_director.submit_action(resolve_action)
-
+func _on_attack_animation_complete()->void:
+	_is_waiting_for_battle_resolution = false
 func _build_animation_queue() -> void:
 		anim_queue = AnimationQueue.new()
+		anim_queue.attack_animation_complete.connect(_on_attack_animation_complete)
 		add_child(anim_queue)
 ## Fires once LP damage and destruction have actually been applied to the
 ## domain. The destroyed-card visuals are NOT animated here — ZoneManager's
@@ -1724,3 +1744,45 @@ func _on_pile_card_inspected(card: CardInstance) -> void:
 
 func _on_pile_viewer_closed() -> void:
 	print("Pile viewer closed")
+
+func _setup_hands() -> void:
+	# Create hand managers
+	_hand_manager_p1 = HandManager.new()
+	_hand_manager_p2 = HandManager.new()
+	
+	# Add to scene
+	add_child(_hand_manager_p1)
+	add_child(_hand_manager_p2)
+	_hand_manager_p1.ready.connect(connect_hands)
+	
+func connect_hands()->void:
+	# Setup with players
+	_hand_manager_p1.setup(players[0], zone_manager.hand_of(players[0]))
+	_hand_manager_p2.setup(players[1], zone_manager.hand_of(players[1]))
+	# Position them
+	_hand_manager_p1.position = Vector2(0, 540)  # Bottom of screen
+	_hand_manager_p2.position = Vector2(0, 0)    # Top of screen
+	
+	# Connect signals
+	_hand_manager_p1.card_selected.connect(_on_hand_card_selected.bind(players[0]))
+	_hand_manager_p2.card_selected.connect(_on_hand_card_selected.bind(players[1]))
+
+func _on_hand_card_selected(card: CardInstance, player: Player) -> void:
+	# Handle card click from hand
+	if player == local_player:
+		# Show tooltip for local player's cards
+		var view = _hand_manager_p1.get_card_views().get(card.instance_id, null)
+		if view:
+			var actions = game_director.tooltip_actions_for(card, local_player)
+			tooltip.show_for(card, actions, view.global_position, view.size)
+# Keyboard shortcut to toggle hand expansion
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed:
+		if event.keycode == KEY_H:
+			_hand_manager_p1.toggle_expanded()
+		elif event.keycode == KEY_CTRL:
+			# Hold Ctrl to temporarily hide hand
+			_hand_manager_p1.hide_hand()
+		elif event.keycode == KEY_ALT:
+			# Hold Alt to view board (hide hand automatically)
+			_hand_manager_p1.hide_hand()

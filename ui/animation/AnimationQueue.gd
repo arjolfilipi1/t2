@@ -113,6 +113,7 @@ func _process_next() -> void:
 	var label: String          = item.get("label", "")
 	print("anim queue",label,",queue:",len(_queue))
 	if producers.size() == 1:
+		print("prod:",producers[0],typeof(producers[0]))
 		var sig: Signal = producers[0].call()
 		await sig
 	else:

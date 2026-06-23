@@ -43,7 +43,7 @@ enum MoveReason {
 	MATERIAL,       ## Used as Fusion/Synchro/Xyz material
 	RULE,           ## Rules-based removal (e.g. field limit)
 	GAME_SETUP,     ## Initial deck/hand placement
-	RESOLVE
+	RESOLVE,
 }
 
 ## Reasons that count as "destroyed"
