@@ -61,6 +61,7 @@ var _pile_viewer: PileViewer = null
 @onready var p2_banished: Control = $Zones/P2/P2_BanishedPile
 @onready var p2_deck: Control = $Zones/P2/P2_DeckPile
 @onready var p2_extra_deck: Control = $Zones/P2/P2_ExtraDeckPile
+@onready var hands_container: Control = $Hands
 #add the info bar buttons for click handling
 @onready var p1_deck_button: Button = $P1_InfoBar/P1_Deck
 #@onready var p1_extra_button: Button = $P1_InfoBar/P1_Extra
@@ -149,6 +150,9 @@ var _pending_slot_callback: Callable = Callable() # Called with selected slot in
 var _pending_battle_attacker: CardInstance = null
 var _pending_battle_target: CardInstance = null
 var _is_waiting_for_battle_resolution: bool = false
+# ─── Effect Picker ────────────────────────────────────────────────────────────
+var _active_arrows: Array[CurvedArrow] = []
+var _arrow_layer: Node2D = null
 
 # ─── Effect Picker ────────────────────────────────────────────────────────────
 ## Shown instead of jumping straight to targeting whenever a card has more
@@ -190,7 +194,8 @@ var _is_waiting_for_auto_pass: bool = false
 #hand containers 
 var _hand_manager_p1: HandManager = null
 var _hand_manager_p2: HandManager = null
-var _hand_container: Control = null
+const HandManagerScene = preload("res://ui/hand/HandManager.tscn")
+
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
@@ -208,16 +213,16 @@ func _ready() -> void:
 	board_area.mouse_entered.connect(_on_board_area_entered)
 	board_area.mouse_exited.connect(_on_board_area_exited)
 	add_child(board_area)
-	_setup_hands()
+	
+	
 func _on_board_area_entered() -> void:
-	# Hide hand when mouse enters board area
-	if _hand_manager_p1:
+	# Only hide P1's hand when mouse enters board
+	if _hand_manager_p1 and not _hand_manager_p1._is_expanded:
 		_hand_manager_p1.hide_hand()
 
 func _on_board_area_exited() -> void:
-	# Show hand again when mouse leaves board area
-	# But only if not expanded
-	if _hand_manager_p1 and not _hand_manager_p1._is_expanded:
+	# Show P1's hand again when mouse leaves
+	if _hand_manager_p1:
 		_hand_manager_p1.show_hand()
 
 func setup(
@@ -232,7 +237,7 @@ func setup(
 	players      = player_list
 	game_director = gd
 	local_player  = player_list[0]
-	
+	_setup_hands()
 	_build_animation_queue()
 	if pass_button:
 		pass_button.pressed.connect(func():pass_priority_requested.emit())
@@ -362,7 +367,13 @@ func _make_lp_label(text: String, pos: Vector2) -> Label:
 # ─── Card View Lifecycle ──────────────────────────────────────────────────────
 
 func get_or_create_card_view(card: CardInstance) -> CardView:
-	
+	if card.is_in_hand():
+		var hand_manager = _hand_manager_p1 if card.controller == players[0] else _hand_manager_p2
+		if hand_manager:
+			var views = hand_manager.get_card_views()
+			if views.has(card.instance_id):
+				return views[card.instance_id]
+
 	if _card_views.has(card.instance_id):
 		return _card_views[card.instance_id]
 	const CardViewScene := preload("res://ui/card/CardView.tscn")
@@ -405,21 +416,30 @@ func refresh_hand(player: Player) -> void:
 	var hand_zone = zone_manager.hand_of(player)
 	if player == players[0]:
 		_hand_manager_p1.refresh_hand(hand_zone)
+		await get_tree().process_frame
+		for child in _hand_manager_p1.hand_container.get_children():
+				if child is CardView:
+					child.flip_to(true, true)
 	else:
 		_hand_manager_p2.refresh_hand(hand_zone)
-
+		await get_tree().process_frame
+		for child in _hand_manager_p2.hand_container.get_children():
+				if child is CardView:
+					child.flip_to(false, true)
 ## Flip all hand cards face-down (on request).
 func conceal_hand(player: Player) -> void:
-	for card in zone_manager.hand_of(player).get_cards():
-		var view := get_or_create_card_view(card)
-		view.flip_to(false)
-## Flip all hand cards face-up (for the local player).
-func reveal_hand(player: Player,zm:ZoneManager= zone_manager) -> void:
-	if not zone_manager:
-		zone_manager = zm
-	for card in zone_manager.hand_of(player).get_cards():
-		var view := get_or_create_card_view(card)
-		view.flip_to(true)
+	var hand_manager = _hand_manager_p1 if player == players[0] else _hand_manager_p2
+	if hand_manager:
+		for view in hand_manager.get_card_views().values():
+			if view is CardView:
+				view.flip_to(false)
+
+func reveal_hand(player: Player) -> void:
+	var hand_manager = _hand_manager_p1 if player == players[0] else _hand_manager_p2
+	if hand_manager:
+		for view in hand_manager.get_card_views().values():
+			if view is CardView:
+				view.flip_to(true)
 # ─── Full Refresh (used after UndoManager restores a snapshot) ────────────────
 
 ## Re-derives every CardView's parent/position/face-state from the CURRENT
@@ -481,17 +501,18 @@ func _place_card_view_for_current_zone(view: CardView, card: CardInstance, zone:
 						pv.set_count(zone.count())
 				return
 		if zone.zone_type == Zone.ZoneType.HAND:
-				if view.get_parent() != self:
-						if view.get_parent() != null:
-								view.reparent(self)
-						else:
-								add_child(view)
+			if _card_views.has(card.instance_id):
+				var view_t_d = _card_views[card.instance_id]
+				_card_views.erase(card.instance_id)
+				if view_t_d.get_parent() == self:
+					view_t_d.queue_free()
+			refresh_hand(card.controller)
 				## refresh_hand() (called once per player after this loop) positions it.
 # ─── Glow / Highlight API ─────────────────────────────────────────────────────
 func highlight_summonable(cards: Array[CardInstance]) -> void:
 	clear_all_glows()
 	for card in cards:
-		var view = _card_views.get(card.instance_id, null)
+		var view:CardView = _get_card_view(card)
 		if view:
 			view.set_glow(CardView.GlowState.SUMMONABLE)
 
@@ -501,14 +522,14 @@ func highlight_summonable(cards: Array[CardInstance]) -> void:
 func highlight_targetable(targets: Array[CardInstance]) -> void:
 	clear_all_glows()
 	for card in targets:
-		var view = _card_views.get(card.instance_id, null)
+		var view = _get_card_view(card)
 		if view:
 			view.set_glow(CardView.GlowState.TARGETABLE)
 
 ## Highlight cards that can activate effects (Yellow/Orange)
 func highlight_activatable(cards: Array) -> void:
 	for card in cards:
-		var view = _card_views.get(card.instance_id, null)
+		var view = _get_card_view(card)
 		if view:
 			view.set_glow(CardView.GlowState.ACTIVATABLE)
 
@@ -516,6 +537,12 @@ func highlight_activatable(cards: Array) -> void:
 func clear_all_glows() -> void:
 	for view in _card_views.values():
 		view.set_glow(CardView.GlowState.NONE)
+		 # Clear HandManager glows
+	if _hand_manager_p1:
+		for view in _hand_manager_p1.get_card_views().values():
+			if view is CardView:
+				view.set_glow(CardView.GlowState.NONE)
+
 
 ## Highlight a specific card as selected.
 func select_card(card: CardInstance) -> void:
@@ -581,8 +608,8 @@ func _on_card_moved(
 	to_zone: Zone,
 	reason: ZoneManager.MoveReason
 ) -> void:
-	print("moved to: ", to_zone.zone_id, " stack: ", get_stack())
-	print(card.definition.card_name, " moving card for ",reason," ",reason == 8)
+
+
 	if reason == 8 and not _is_waiting_for_battle_resolution:
 		
 		delay_card    = card
@@ -646,12 +673,17 @@ func _on_card_moved(
 			pv.place_card(view, false)
 			pv.set_count(to_zone.count())
 	elif to_zone.zone_type == Zone.ZoneType.HAND:
-		# Hand is laid out separately
-		if view.get_parent() != null and view.get_parent() != self:
-			view.reparent(self)
-		elif view.get_parent() == null:
-			add_child(view)
+		# Hand is laid out separately - HandManager handles this
+		# Don't reparent or add cards here!
 		refresh_hand(card.controller)
+		# Remove the view from any previous parent if needed
+		if _card_views.has(card.instance_id):
+			var stale_view = _card_views[card.instance_id]
+			_card_views.erase(card.instance_id)
+			if stale_view.get_parent() == self:
+				stale_view.get_parent().remove_child(stale_view)
+
+
 	if _from.zone_type == Zone.ZoneType.HAND:
 		refresh_hand(card.controller)
 func _on_zone_changed(zone: Zone) -> void:
@@ -1027,7 +1059,7 @@ func _begin_discard_selection(request: InputRequest) -> void:
 		## a no-op for this state in practice since the player has no legal
 		## alternative action available while it's active.
 func _collect_discard(card: CardInstance) -> void:
-		var view := _card_views.get(card.instance_id, null)
+		var view :CardView= _card_views.get(card.instance_id, null)
 		if view == null or view.glow_state != CardView.GlowState.TARGETABLE:
 				## Not a valid discard candidate — ignore the click, stay in this state
 				return
@@ -1061,14 +1093,14 @@ func _begin_tribute_selection(card: CardInstance) -> void:
 		_pending_tributes.clear()
 		clear_all_glows()
 		for tribute_candidate in field:
-				var view := _card_views.get(tribute_candidate.instance_id, null)
+				var view :CardView= _card_views.get(tribute_candidate.instance_id, null)
 				if view:
 						view.set_glow(CardView.GlowState.TARGETABLE)
 		_show_cancel_hint("Select %d monster%s to tribute for %s, or press Escape to cancel." % [
 				needed, "s" if needed > 1 else "", card.definition.card_name
 		])
 func _collect_tribute(card: CardInstance) -> void:
-		var view := _card_views.get(card.instance_id, null)
+		var view :CardView= _card_views.get(card.instance_id, null)
 		if view == null or view.glow_state != CardView.GlowState.TARGETABLE:
 				## Clicked a card that isn't a valid tribute candidate — cancel
 				_cancel_pending()
@@ -1148,7 +1180,7 @@ func _begin_attack_flow(attacker: CardInstance) -> void:
 	for target in targets:
 		if target == null:
 			continue
-		var view := _card_views.get(target.instance_id, null)
+		var view :CardView= _card_views.get(target.instance_id, null)
 		if view:
 			view.set_glow(CardView.GlowState.TARGETABLE)
 
@@ -1195,7 +1227,7 @@ func _begin_activate_flow(card: CardInstance) -> void:
 	## A future improvement would show a sub-menu to choose which effect.
 	if eff_list.size() > 1:
 		# Get the actual CardView for positioning
-		var view := _card_views.get(card.instance_id, null)
+		var view :CardView= _card_views.get(card.instance_id, null)
 		if view:
 			_effect_picker.show_for(card, eff_list, view.global_position, view.size)
 		else:
@@ -1262,7 +1294,7 @@ func _start_effect_targeting(card: CardInstance, eff_idx: int) -> void:
 	select_card(card)
 
 	for candidate in candidates:
-		var view := _card_views.get(candidate.instance_id, null)
+		var view :CardView= _card_views.get(candidate.instance_id, null)
 		if view:
 			view.set_glow(CardView.GlowState.TARGETABLE)
 
@@ -1331,7 +1363,7 @@ func _start_summon_from_hand_flow(card: CardInstance, eff_idx: int) -> void:
 
 func _collect_effect_target(card: CardInstance) -> void:
 	## Check this card is actually a highlighted target
-	var view := _card_views.get(card.instance_id, null)
+	var view :CardView= _card_views.get(card.instance_id, null)
 	if view == null or view.glow_state != CardView.GlowState.TARGETABLE:
 		## Clicked a non-target — cancel
 		_cancel_pending()
@@ -1427,6 +1459,19 @@ func _get_summon_step(card: CardInstance, eff_idx: int) -> CardLibrary._SummonFr
 		if step is CardLibrary._SummonFromHandStep:
 			return step
 	return null
+func _get_card_view(card: CardInstance) -> CardView:
+	# Check if in hand
+	if card.is_in_hand():
+		var hand_manager = _hand_manager_p1 if card.controller == players[0] else _hand_manager_p2
+		if hand_manager:
+			var views = hand_manager.get_card_views()
+			if views.has(card.instance_id):
+				return views[card.instance_id]
+	
+	# Check BoardView's cache
+	return _card_views.get(card.instance_id, null)
+
+
 func _setup_auto_pass_timer() -> void:
 	_auto_pass_timer = Timer.new()
 	_auto_pass_timer.wait_time = _auto_pass_delay
@@ -1581,7 +1626,7 @@ func _on_card_selector_selected(card: CardInstance) -> void:
 		"target_effect":
 			# Add to pending targets
 			_pending_targets.append(card)
-			var view = _card_views.get(card.instance_id, null)
+			var view:CardView = _card_views.get(card.instance_id, null)
 			if view:
 				view.set_glow(CardView.GlowState.TARGETED)
 			
@@ -1646,7 +1691,7 @@ func _on_card_selector_cancelled() -> void:
 	_cancel_pending()
 func _start_search_flow(card: CardInstance, eff_idx: int) -> void:
 	# Get the search candidates from the effect step
-	var eff: EffectDefinition = card.definition.effects[eff_idx]
+	#var eff: EffectDefinition = card.definition.effects[eff_idx]
 	
 	# For Sangan, we need to search the deck for monsters with ATK <= 1500
 	var deck := zone_manager.deck_of(local_player)
@@ -1747,34 +1792,51 @@ func _on_pile_viewer_closed() -> void:
 
 func _setup_hands() -> void:
 	# Create hand managers
-	_hand_manager_p1 = HandManager.new()
-	_hand_manager_p2 = HandManager.new()
 	
+	_hand_manager_p1 = HandManagerScene.instantiate()
+	_hand_manager_p2 = HandManagerScene.instantiate()
+	_hand_manager_p1.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hand_manager_p2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hand_manager_p1.name = "player name"
+	_hand_manager_p2.name = "enemy name"
 	# Add to scene
-	add_child(_hand_manager_p1)
-	add_child(_hand_manager_p2)
-	_hand_manager_p1.ready.connect(connect_hands)
+	hands_container.add_child(_hand_manager_p1)
+	hands_container.add_child(_hand_manager_p2)
 	
-func connect_hands()->void:
+	# Position them - DIFFERENT POSITIONS!
+	_hand_manager_p1.position = Vector2(0, 540)  # Bottom of screen
+	_hand_manager_p1.size = Vector2(size.x, 1)
+	
+	_hand_manager_p2.position = Vector2(0, 0)    # Top of screen
+	_hand_manager_p2.size = Vector2(size.x, 1)
+	
 	# Setup with players
 	_hand_manager_p1.setup(players[0], zone_manager.hand_of(players[0]))
 	_hand_manager_p2.setup(players[1], zone_manager.hand_of(players[1]))
-	# Position them
-	_hand_manager_p1.position = Vector2(0, 540)  # Bottom of screen
-	_hand_manager_p2.position = Vector2(0, 0)    # Top of screen
 	
 	# Connect signals
 	_hand_manager_p1.card_selected.connect(_on_hand_card_selected.bind(players[0]))
 	_hand_manager_p2.card_selected.connect(_on_hand_card_selected.bind(players[1]))
+	
+	# Hide P2 hand (face down - opponent's cards)
+	await get_tree().process_frame  # Wait for views to be created
+	for child in _hand_manager_p2.hand_container.get_children():
+		if child is CardView:
+			child.flip_to(false, true)
+	
+	# P1 hand face up
+	for child in _hand_manager_p1.hand_container.get_children():
+		if child is CardView:
+			child.flip_to(true, true)
 
 func _on_hand_card_selected(card: CardInstance, player: Player) -> void:
-	# Handle card click from hand
-	if player == local_player:
-		# Show tooltip for local player's cards
-		var view = _hand_manager_p1.get_card_views().get(card.instance_id, null)
-		if view:
-			var actions = game_director.tooltip_actions_for(card, local_player)
-			tooltip.show_for(card, actions, view.global_position, view.size)
+	if player != local_player:
+		return
+	
+	var view = _hand_manager_p1.get_card_views().get(card.instance_id, null)
+	if view and game_director:
+		var actions = game_director.tooltip_actions_for(card, local_player)
+		tooltip.show_for(card, actions, view.global_position, view.size)
 # Keyboard shortcut to toggle hand expansion
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:

@@ -14,7 +14,7 @@ signal hand_size_changed(player: Player, new_size: int)
 
 var player_id:    int    = 0
 var display_name: String = ""
-
+var is_human  := false
 # ─── Game State ───────────────────────────────────────────────────────────────
 
 var life_points: int = 8000

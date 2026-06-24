@@ -200,7 +200,7 @@ func change_position(player: Player, card: CardInstance,
 	return submit_action(GameAction.ChangeBattlePositionAction.make(player, card, new_pos))
 
 func pass_priority(player: Player) -> bool:
-	print("pass_priority: ", player.display_name, " stack: ", get_stack())
+
 	return submit_action(GameAction.PassPriorityAction.make(player))
 
 func advance_phase(player: Player) -> bool:

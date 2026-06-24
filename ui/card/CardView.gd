@@ -145,7 +145,7 @@ var _glow_tween: Tween = null
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(CARD_W, CARD_H)
-	size = Vector2(CARD_W, CARD_H)
+	#size = Vector2(CARD_W, CARD_H)
 	pivot_offset = Vector2(CARD_W / 2.0, CARD_H / 2.0)
 
 	mouse_entered.connect(_on_mouse_entered)
@@ -655,6 +655,7 @@ func _on_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.pressed:
 			if event.button_index == MOUSE_BUTTON_LEFT:
+				print("clicked: ",card.definition.card_name , " stack: ", get_stack())
 				card_clicked.emit(self)
 			elif event.button_index == MOUSE_BUTTON_RIGHT:
 				card_inspected.emit(self)
@@ -692,7 +693,7 @@ func reset_for_field() ->void:
 	position = Vector2.ZERO
 	modulate = Color.WHITE
 func _to_string() -> String:
-	var name := card.definition.card_name if card else "empty"
+	var name :String= card.definition.card_name if card else "empty"
 	return "CardView(%s)" % name
 # ──────────────────────────────────────────────────────────────────────────────
 # Inner class: expanding ring drawn for animate_effect_resolve()

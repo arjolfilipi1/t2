@@ -22,8 +22,16 @@ offset_right = 659.0
 offset_bottom = 415.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 theme = ExtResource("4_theme")
 script = ExtResource("1_board_script")
+
+[node name="Hands" type="Control" parent="."]
+visibility_layer = 2
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+mouse_filter = 2
 
 [node name="Background" type="ColorRect" parent="."]
 visible = false
@@ -116,6 +124,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 
 [node name="P2" type="Control" parent="Zones"]
 layout_mode = 1
@@ -336,7 +345,6 @@ offset_right = 395.0
 offset_bottom = 74.0
 grow_horizontal = 2
 grow_vertical = 0
-mouse_filter = 1
 theme_override_styles/panel = SubResource("StyleBox_hud_panel")
 
 [node name="PhaseLabel" type="Label" parent="HUD_Bar"]

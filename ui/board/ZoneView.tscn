@@ -8,7 +8,6 @@ layout_mode = 3
 anchors_preset = 0
 offset_right = 108.0
 offset_bottom = 153.0
-mouse_filter = 1
 script = ExtResource("1_zone_script")
 
 [node name="BG" type="ColorRect" parent="."]

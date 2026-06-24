@@ -71,6 +71,7 @@ func _ready() -> void:
 func _boot_domain() -> void:
 	CardFactory.reset_counter()
 	p1 = Player.make(1, "You")
+	p1.is_human = true
 	p2 = Player.make(2, "Opponent")
 	gd = GameDirector.new()
 	add_child(gd)
@@ -186,7 +187,7 @@ func _populate_decks() -> void:
 # ──────────────────────────────────────────────────────────────────────────────
 
 func _def(
-	id: StringName, name: String,
+	id: StringName, card_name: String,
 	ctype: CardDefinition.CardType,
 	attr: CardDefinition.Attribute,
 	mtype: String,
@@ -195,7 +196,7 @@ func _def(
 ) -> CardDefinition:
 	var d              := CardDefinition.new()
 	d.card_id          = id
-	d.card_name        = name
+	d.card_name        = card_name
 	d.card_type        = ctype
 	d.attribute        = attr
 	d.monster_type     = mtype
@@ -205,18 +206,18 @@ func _def(
 	d.def              = def_val
 	return d
 
-func _spell_def(id: StringName, name: String, stype: CardDefinition.SpellType) -> CardDefinition:
+func _spell_def(id: StringName, card_name: String, stype: CardDefinition.SpellType) -> CardDefinition:
 	var d          := CardDefinition.new()
 	d.card_id      = id
-	d.card_name    = name
+	d.card_name    = card_name
 	d.card_type    = CardDefinition.CardType.SPELL
 	d.spell_type   = stype
 	return d
 
-func _trap_def(id: StringName, name: String, ttype: CardDefinition.TrapType) -> CardDefinition:
+func _trap_def(id: StringName, card_name: String, ttype: CardDefinition.TrapType) -> CardDefinition:
 	var d          := CardDefinition.new()
 	d.card_id      = id
-	d.card_name    = name
+	d.card_name    = card_name
 	d.card_type    = CardDefinition.CardType.TRAP
 	d.trap_type    = ttype
 	return d
@@ -247,7 +248,7 @@ func _draw_one(player: Player) -> void:
 	zm.move(top, zm.hand_of(player), ZoneManager.MoveReason.DRAW)
 	
 	if player == p1:
-		board.reveal_hand(p1,zm)
+		board.reveal_hand(p1)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Keyboard Input
@@ -403,19 +404,32 @@ func _on_phase_advance() -> void:
 # ──────────────────────────────────────────────────────────────────────────────
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-		var clicked_ui_nodes: Array[String] = []
-		get_ui_nodes_at_position(self, event.position, clicked_ui_nodes)
-		print("Clicked UI Nodes: ", clicked_ui_nodes)
+		# Use global_position for accurate click detection
+		var target_node = get_ui_node_at_position(self, event.global_position)
+		
+		if target_node:
+			while target_node:
+				print("Click went to: ",target_node.get_parent().name if target_node.get_parent() else "" ,";", target_node.name)
+				target_node = target_node.get_parent()
+		else:
+			print("Click went to: None (Empty Space)")
 
-func get_ui_nodes_at_position(current_node: Node, mouse_pos: Vector2, results: Array[String]) -> void:
-	if current_node is Control and current_node.visible:
-		# Check if the global mouse position falls inside the control's rectangle
-		if current_node.get_global_rect().has_point(mouse_pos):
-			results.append(current_node.name)
+func get_ui_node_at_position(current_node: Node, click_pos: Vector2) -> Control:
+	# Check children backwards to prioritize front-most UI elements first
+	var children = current_node.get_children()
+	for i in range(children.size() - 1, -1, -1):
+		var found_node = get_ui_node_at_position(children[i], click_pos)
+		if found_node:
+			return found_node # Return immediately if a child was clicked
 			
-	# Recursively check children to build the full list from top to bottom
-	for child in current_node.get_children():
-		get_ui_nodes_at_position(child, mouse_pos, results)
+	# Check the current node after checking its children
+	if current_node is Control and current_node.visible:
+		# Important: MOUSE_FILTER_IGNORE lets clicks pass through to elements behind it
+		if current_node.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			if current_node.get_global_rect().has_point(click_pos):
+				return current_node
+				
+	return null
 func _on_card_clicked(card: CardInstance, _view: CardView) -> void:
 	print("TestBoard: Clicked → %s (zone=%s, atk=%d, def=%d)" % [
 		card.definition.card_name,

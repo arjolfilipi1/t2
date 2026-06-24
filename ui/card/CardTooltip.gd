@@ -104,6 +104,7 @@ func show_for(
 ) -> void:
 	_card = card
 	_clear_buttons()
+	get_parent().move_child(self,get_parent().get_child_count()-1)
 	
 	for action in actions:
 		var btn := _make_button(action)

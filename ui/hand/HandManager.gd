@@ -1,7 +1,7 @@
 ## HandManager.gd
 ## Handles fan layout, hover expansion, and card positioning for a player's hand
 class_name HandManager
-extends Node
+extends Control
 
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal hand_visibility_changed(visible: bool)
@@ -10,39 +10,43 @@ signal card_selected(card: CardInstance)
 # ─── Constants ──────────────────────────────────────────────────────────────────
 const CARD_WIDTH := 100.0
 const CARD_HEIGHT := 145.0
-const CARD_SPACING := 8.0  # Normal spacing between cards
-const EXPANDED_SPACING := 20.0  # Spacing when hovered
-const HOVER_OFFSET_Y := -30.0  # How much hovered card rises
-const EXPAND_SCALE := 1.2  # Scale when hovered
-const FAN_ANGLE_DEG := 4.0  # Max rotation for fan
-const FAN_ARC_Y := 12.0  # Y offset for fan arc
+const CARD_SPACING := 8.0 
+const EXPANDED_SPACING := 20.0 
+const HOVER_OFFSET_Y := -30.0 
+const EXPAND_SCALE := 1.2 
+const FAN_ANGLE_DEG := 10.0 
+const FAN_ARC_Y := 12.0 
 const ANIMATION_DURATION := 0.25
 
 # ─── State ──────────────────────────────────────────────────────────────────
 var _player: Player = null
 var _cards: Array = []
-var _card_views: Dictionary = {}  # instance_id → CardView
-var _card_positions: Dictionary = {}  # instance_id → target_position
-var _is_expanded: bool = false  # True when hand is fanned out (viewing board)
+var _card_views: Dictionary = {} 
+var _card_positions: Dictionary = {} 
+var _is_expanded: bool = false 
 var _is_hovering: bool = false
 var _hovered_card: CardInstance = null
 var _hovered_index: int = -1
-
+var _is_setup := false
 # ─── Node Refs ──────────────────────────────────────────────────────────────────
 @onready var hand_container: Control = $HandContainer
 @onready var background: ColorRect = $Background
 @onready var expand_button: Button = $ExpandButton
-var _is_setup := false
+
 # ─── Lifecycle ──────────────────────────────────────────────────────────────────
 func _ready() -> void:
-
-	
 	if expand_button:
 		expand_button.pressed.connect(toggle_expanded)
 		expand_button.text = "▼ Hand"
+	
 	_is_setup = true
+	if background:
+		background.mouse_filter = Control.MOUSE_FILTER_STOP
+	if hand_container:
+		hand_container.MOUSE_FILTER_IGNORE
 	if _player != null and not _cards.is_empty():
 		_refresh_hand()
+	on_node_ready()
 func setup(player: Player, hand_zone: Zone) -> void:
 	_player = player
 	_cards = hand_zone.get_cards()
@@ -59,14 +63,18 @@ func refresh_hand(hand_zone: Zone) -> void:
 
 func get_card_views() -> Dictionary:
 	return _card_views
-
+	
+func get_card_count() -> int:
+	return _cards.size()
+	
 func toggle_expanded() -> void:
 	if not _is_setup:
 		return
 	_is_expanded = not _is_expanded
 	_update_hand_layout()
 	hand_visibility_changed.emit(_is_expanded)
-	expand_button.text = "▲ Hand" if _is_expanded else "▼ Hand"
+	if expand_button:
+		expand_button.text = "▲ Hand" if _is_expanded else "▼ Hand"
 
 func set_expanded(expanded: bool) -> void:
 	if _is_expanded == expanded:
@@ -74,39 +82,58 @@ func set_expanded(expanded: bool) -> void:
 	_is_expanded = expanded
 	_update_hand_layout()
 	hand_visibility_changed.emit(_is_expanded)
-
+	
+func show_hand() -> void:
+	if _is_expanded:
+		return
+	_is_expanded = true
+	_update_hand_layout()
+	hand_visibility_changed.emit(true)
+func hide_hand() -> void:
+	if not _is_expanded:
+		return
+	_is_expanded = false
+	_update_hand_layout()
+	hand_visibility_changed.emit(false)
 func get_card_at_position(pos: Vector2) -> CardInstance:
 	for card in _cards:
 		var view = _card_views.get(card.instance_id, null)
 		if view and view.get_global_rect().has_point(pos):
 			return card
 	return null
-
+func on_node_ready():
+	size = Vector2(size.x,1)
+	print("hand size:",size)
 # ─── Hand Layout ──────────────────────────────────────────────────────────────────
 func _refresh_hand() -> void:
+	if not _is_setup or not hand_container:
+		return
+	
 	# Clean up old views
-	if not hand_container:
-		return
-	if hand_container and not hand_container.is_node_ready():
-		return
-	for child in hand_container.get_children():
+	var children_to_remove = hand_container.get_children().duplicate()
+	for child in children_to_remove:
+		hand_container.remove_child(child)
 		child.queue_free()
 	_card_views.clear()
 	
-	# Create new views
+	# Create new views for each card
 	for card in _cards:
 		var view = _create_card_view(card)
-		hand_container.add_child(view)
-		_card_views[card.instance_id] = view
+		if view:
+			hand_container.add_child(view)
+			_card_views[card.instance_id] = view
 	
 	_update_hand_layout()
 
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		print("hand click ",name,"filter",mouse_filter)
 func _create_card_view(card: CardInstance) -> CardView:
 	const CardViewScene := preload("res://ui/card/CardView.tscn")
 	var view := CardViewScene.instantiate() as CardView
 	view.bind(card)
-	view.card_clicked.connect(_on_card_clicked.bind(card))
-	view.card_inspected.connect(_on_card_inspected.bind(card))
+	view.card_clicked.connect(_on_card_clicked)
+	view.card_inspected.connect(_on_card_inspected)
 	
 	# Connect hover signals for expansion
 	view.mouse_entered.connect(_on_card_hover_entered.bind(card))
@@ -115,20 +142,26 @@ func _create_card_view(card: CardInstance) -> CardView:
 	return view
 
 func _update_hand_layout() -> void:
+	if not _is_setup or not hand_container:
+		return
+	
 	var count := _cards.size()
 	if count == 0:
 		return
 	
 	var container_width := hand_container.size.x
+	if container_width == 0:
+		container_width = size.x
+		if container_width == 0:
+			container_width = 1280
+	
 	var spacing := CARD_SPACING
 	var total_width := count * CARD_WIDTH + (count - 1) * spacing
 	
-	# Adjust spacing if cards would overflow
 	if total_width > container_width and not _is_expanded:
 		spacing = (container_width - count * CARD_WIDTH) / (count - 1)
-		spacing = max(spacing, 2.0)  # Minimum spacing
+		spacing = max(spacing, 2.0)
 	
-	# Fan calculation
 	var start_x := (container_width - total_width) / 2.0
 	
 	for i in count:
@@ -137,36 +170,30 @@ func _update_hand_layout() -> void:
 		if not view:
 			continue
 		
-		# Calculate base position
 		var target_x := start_x + i * (CARD_WIDTH + spacing)
-		var t :float = float(i) / max(count - 1, 1)
-		
-		# Fan arc (cards curve upward)
-		var arc_y : float= sin(t * PI) * (-FAN_ARC_Y if not _is_expanded else 0)
-		
-		# Fan rotation
+		var t :float= float(i) / max(count - 1, 1)
+		var arc_y :float= sin(t * PI) * (-FAN_ARC_Y if not _is_expanded else 0) if _player.is_human else sin(t * PI) * (+FAN_ARC_Y if not _is_expanded else 0)
 		var rotation := lerp(-FAN_ANGLE_DEG, FAN_ANGLE_DEG, t)
-		if _is_expanded:
-			rotation *= 0.3  # Less rotation when expanded
 		
-		# Y position - cards lower when expanded
+		if _is_expanded:
+			rotation *= 0.3
+		
 		var y_offset := 0.0
 		if _is_expanded:
-			# Push cards down to reveal board
 			y_offset = CARD_HEIGHT * 0.7
 		elif _hovered_card == card:
-			# Hovered card rises
 			y_offset = HOVER_OFFSET_Y
 		
-		# Target position
 		var target_pos := Vector2(target_x, y_offset + arc_y)
 		_card_positions[card.instance_id] = target_pos
 		
-		# Animate to position
 		_animate_card_to(view, target_pos, rotation)
+
 
 func _animate_card_to(view: CardView, target_pos: Vector2, rotation: float) -> void:
 	# Create a tween for smooth animation
+	if not view:
+		return
 	var tw := view.create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.set_trans(Tween.TRANS_QUINT)
@@ -263,24 +290,12 @@ func _animate_card_to_with_scale(view: CardView, target_pos: Vector2, rotation: 
 	tw.tween_property(view, "rotation", deg_to_rad(rotation), ANIMATION_DURATION)
 	tw.tween_property(view, "scale", Vector2(scale, scale), ANIMATION_DURATION)
 
-# ─── Hand Visibility ──────────────────────────────────────────────────────────
-func show_hand() -> void:
-	if _is_expanded:
-		return
-	_is_expanded = true
-	_update_hand_layout()
-	hand_visibility_changed.emit(true)
 
-func hide_hand() -> void:
-	if not _is_expanded:
-		return
-	_is_expanded = false
-	_update_hand_layout()
-	hand_visibility_changed.emit(false)
 
 # ─── Input Handling ──────────────────────────────────────────────────────────
-func _on_card_clicked(card: CardInstance) -> void:
-	card_selected.emit(card)
+func _on_card_clicked(view: CardView) -> void:
+	if view and view.card:
+		card_selected.emit(view.card)
 
 func _on_card_inspected(card: CardInstance) -> void:
 	# Show card detail popup

@@ -18,17 +18,17 @@ const CARD_SPACING = 6
 # ─── Node References ──────────────────────────────────────────────────────────
 
 @onready var background: ColorRect = $Background
-@onready var panel: Panel = $Panel
-@onready var title_label: Label = $Panel/VBoxContainer/Header/TitleLabel
-@onready var close_button: Button = $Panel/VBoxContainer/Header/CloseButton
-@onready var card_grid: GridContainer = $Panel/VBoxContainer/ScrollContainer/CardGrid
-@onready var count_label: Label = $Panel/VBoxContainer/FilterContainer/CountLabel
+@onready var panel: Panel = $PilePanel
+@onready var title_label: Label = $PilePanel/VBoxContainer/Header/TitleLabel
+@onready var close_button: Button = $PilePanel/VBoxContainer/Header/CloseButton
+@onready var card_grid: GridContainer = $PilePanel/VBoxContainer/ScrollContainer/CardGrid
+@onready var count_label: Label = $PilePanel/VBoxContainer/FilterContainer/CountLabel
 
 # Filter buttons
-@onready var all_button: Button = $Panel/VBoxContainer/FilterContainer/AllButton
-@onready var monster_button: Button = $Panel/VBoxContainer/FilterContainer/MonsterButton
-@onready var spell_button: Button = $Panel/VBoxContainer/FilterContainer/SpellButton
-@onready var trap_button: Button = $Panel/VBoxContainer/FilterContainer/TrapButton
+@onready var all_button: Button = $PilePanel/VBoxContainer/FilterContainer/AllButton
+@onready var monster_button: Button = $PilePanel/VBoxContainer/FilterContainer/MonsterButton
+@onready var spell_button: Button = $PilePanel/VBoxContainer/FilterContainer/SpellButton
+@onready var trap_button: Button = $PilePanel/VBoxContainer/FilterContainer/TrapButton
 const CARD_DISPLAY_SCENE = preload("res://ui/card/CardDisplay.tscn")
 # ─── State ────────────────────────────────────────────────────────────────────
 
