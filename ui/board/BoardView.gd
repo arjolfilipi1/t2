@@ -203,27 +203,7 @@ func _ready() -> void:
 	_connect_info_bar_buttons()
 	_build_pile_viewer()
 	_connect_pile_buttons()
-	var board_area := Control.new()
-	board_area.name = "BoardArea"
-	board_area.layout_mode = 1
-	board_area.anchors_preset = 15
-	board_area.anchor_right = 1.0
-	board_area.anchor_bottom = 1.0
-	board_area.mouse_filter = Control.MOUSE_FILTER_STOP
-	board_area.mouse_entered.connect(_on_board_area_entered)
-	board_area.mouse_exited.connect(_on_board_area_exited)
-	add_child(board_area)
-	
-	
-func _on_board_area_entered() -> void:
-	# Only hide P1's hand when mouse enters board
-	if _hand_manager_p1 and not _hand_manager_p1._is_expanded:
-		_hand_manager_p1.hide_hand()
 
-func _on_board_area_exited() -> void:
-	# Show P1's hand again when mouse leaves
-	if _hand_manager_p1:
-		_hand_manager_p1.show_hand()
 
 func setup(
 		zm:          ZoneManager,
@@ -270,6 +250,80 @@ func setup(
 			game_director.awaiting_input.connect(_on_awaiting_input)
 			if game_director.undo_manager != null:
 				game_director.undo_manager.snapshot_restored.connect(_on_snapshot_restored)
+	_setup_arrow_layer()
+## Create a targeting arrow from source to target (Cyan)
+func show_targeting_arrow(source: CardInstance, target: CardInstance, duration: float = 0.3) -> CurvedArrow:
+	var source_view = _card_views.get(source.instance_id, null)
+	var target_view = _card_views.get(target.instance_id, null)
+	
+	if source_view == null or target_view == null:
+		return null
+	
+	var start = source_view.global_position + source_view.size / 2.0
+	var end = target_view.global_position + target_view.size / 2.0
+	
+	var arrow = CurvedArrow.targeting(start, end, duration)
+	arrow.animation_completed.connect(clear_arrows_animated)
+	_arrow_layer.add_child(arrow)
+	_active_arrows.append(arrow)
+	
+	return arrow
+
+## Create a summoning arrow from hand to field (Gold)
+func show_summoning_arrow(hand_pos: Vector2, field_pos: Vector2, duration: float = 0.3) -> CurvedArrow:
+	var arrow = CurvedArrow.summoning(hand_pos, field_pos, duration)
+	arrow.animation_completed.connect(clear_arrows_animated)
+	_arrow_layer.add_child(arrow)
+	_active_arrows.append(arrow)
+	return arrow
+
+## Create an attack arrow from attacker to target (Red)
+func show_attack_arrow(attacker: CardInstance, target: CardInstance, duration: float = 0.3) -> CurvedArrow:
+	var attacker_view = _card_views.get(attacker.instance_id, null)
+	var target_view = _card_views.get(target.instance_id, null)
+	
+	if attacker_view == null:
+		return null
+	
+	var start = attacker_view.global_position + attacker_view.size / 2.0
+	
+	var end: Vector2
+	if target_view != null:
+		end = target_view.global_position + target_view.size / 2.0
+	else:
+		# Direct attack - go to opponent's LP area
+		end = _get_opponent_lp_position(attacker.controller)
+	
+	var arrow = CurvedArrow.attacking(start, end, duration)
+	arrow.animation_completed.connect(clear_arrows_animated)
+	_arrow_layer.add_child(arrow)
+	_active_arrows.append(arrow)
+	
+	return arrow
+func _get_opponent_lp_position(player:Player):
+	if player.is_human:
+		return Vector2(VIEWPORT_W/2,0)
+	else:
+		return Vector2(VIEWPORT_W/2,VIEWPORT_H)
+## Clear all active arrows
+func clear_arrows() -> void:
+	for arrow in _active_arrows:
+		if is_instance_valid(arrow):
+			arrow.destroy_arrow()
+	_active_arrows.clear()
+
+## Clear arrows with animation
+func clear_arrows_animated(fade_duration: float = 0.15) -> void:
+	for arrow in _active_arrows:
+		if is_instance_valid(arrow):
+			arrow.destroy_arrow(fade_duration)
+	_active_arrows.clear()
+
+func _setup_arrow_layer() -> void:
+	_arrow_layer = Node2D.new()
+	_arrow_layer.name = "ArrowLayer"
+	_arrow_layer.z_index = 20  # Above everything
+	add_child(_arrow_layer)
 
 func _clear_container(container: Control) -> void:
 	if container == null:
@@ -311,6 +365,7 @@ func _build_zone_views_from_scene() -> void:
 			monster_grid.add_child(zv)
 			zv.setup(zone_manager.monster_zone_of(player), i, "M%d_%s" % [i,pid])
 			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+			zv.empty_slot_entered.connect(_on_empty_slot_entered)
 			_slot_views["%s_main_monster_%d" % [pid, i]] = zv
 		
 		# Create 5 spell/trap slot ZoneViews
@@ -319,6 +374,7 @@ func _build_zone_views_from_scene() -> void:
 			spell_grid.add_child(zv)
 			zv.setup(zone_manager.spell_zone_of(player), i, "S%d_%s" % [i,pid])
 			zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+			zv.empty_slot_entered.connect(_on_empty_slot_entered)
 			_slot_views["%s_main_spell_%d" % [pid, i]] = zv
 # ─── Zone View Construction ───────────────────────────────────────────────────
 		# Field Spell Zone
@@ -326,11 +382,14 @@ func _build_zone_views_from_scene() -> void:
 		field_spell_container.add_child(fs_zv)
 		fs_zv.setup(zone_manager.field_spell_zone_of(player), 0, "FIELD")
 		fs_zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+		fs_zv.empty_slot_entered.connect(_on_empty_slot_entered)
 		_slot_views["%s_field_spell_0" % pid] = fs_zv
 		# Extra Deck Pile
 		var extra_zv := ZoneViewScene.instantiate()
 		extra_deck_container.add_child(extra_zv)
 		extra_zv.setup(zone_manager.extra_deck_of(player), -1, "EXTRA")
+		extra_zv.empty_slot_clicked.connect(_on_empty_slot_clicked)
+		extra_zv.empty_slot_entered.connect(_on_empty_slot_entered)
 		_pile_views["%s_extra_deck" % pid] = extra_zv
 		# Graveyard Pile
 		var gy_zv := ZoneViewScene.instantiate()
@@ -877,7 +936,11 @@ func _on_card_clicked(view: CardView, card: CardInstance) -> void:
 func _on_card_inspected(view: CardView, card: CardInstance) -> void:
 	_cancel_pending()
 	card_inspect_requested.emit(card)
+func _on_empty_slot_entered(zone_view: ZoneView) -> void:
 
+	if "M" in zone_view.zone_label and  _hand_manager_p1 and _hand_manager_p1._is_expanded:
+		print("hide hand")
+		_hand_manager_p1.hide_hand()
 func _on_empty_slot_clicked(zone_view: ZoneView) -> void:
 	# Check if we're waiting for zone selection
 	_cancel_auto_pass()
@@ -885,10 +948,15 @@ func _on_empty_slot_clicked(zone_view: ZoneView) -> void:
 		print("AWAIT_ZONE_SELECTION")
 		_complete_zone_selection(zone_view)
 		return
-	
 	# Normal empty zone click (not during pending action)
 	_cancel_pending()
 	empty_zone_clicked.emit(zone_view.zone, zone_view.slot_index)
+
+func _get_card_hand_position(card: CardInstance) -> Vector2:
+	var view = _get_card_view(card)
+	if view:
+		return view.global_position - view.size / 2.0
+	return Vector2(640, 540)  # Default hand position
 
 func _complete_zone_selection(zone_view: ZoneView) -> void:
 	var slot := zone_view.slot_index
@@ -899,6 +967,14 @@ func _complete_zone_selection(zone_view: ZoneView) -> void:
 			if zone.zone_type != Zone.ZoneType.MAIN_MONSTER:
 				_show_error("Invalid zone for summon!")
 				return
+			# Show summon arrow
+			var hand_pos := _get_card_hand_position(_pending_card)
+			var field_pos := zone_view.global_position + zone_view.size / 2.0
+			show_summoning_arrow(hand_pos, field_pos,0.2)
+			
+			# Delay summon to let arrow play
+			await get_tree().create_timer(0.2).timeout
+
 			game_director.normal_summon(local_player, _pending_card, [], slot)
 			refresh_hand(local_player)
 			_cancel_pending()
@@ -996,9 +1072,22 @@ func _continue_summon_after_tributes(card: CardInstance, tributes: Array[CardIns
 		return
 
 	if empty_slots == 1:
-		game_director.normal_summon(local_player, card, tributes, monster_zone.first_empty_slot())
+		var slot := monster_zone.first_empty_slot()
+		var hand_pos := _get_card_hand_position(card)
+		
+		# Show summon arrow
+		var zone_view := _slot_views.get("%s_main_monster_%d" % ["p1", slot], null)
+		if zone_view:
+			var field_pos :Vector2= zone_view.global_position + zone_view.size / 2.0
+			show_summoning_arrow(hand_pos, field_pos)
+			
+			# Delay summon to let arrow play
+			await get_tree().create_timer(0.2).timeout
+		
+		game_director.normal_summon(local_player, card, [], slot)
 		refresh_hand(local_player)
 		return
+
 
 	## Multiple empty zones — ask player to choose
 	_pending_state       = PendingState.AWAIT_ZONE_SELECTION
@@ -1167,6 +1256,15 @@ func _begin_attack_flow(attacker: CardInstance) -> void:
 
 	## Direct attack — no target needed
 	if targets.size() == 1 and targets[0] == null:
+		var attacker_view := _card_views.get(attacker.instance_id, null)
+		if attacker_view:
+			var start :Vector2 = attacker_view.global_position + attacker_view.size / 2.0
+			var end :Vector2   = _get_opponent_lp_position(attacker.controller)
+			var arrow = CurvedArrow.attacking(start, end)
+			arrow.animation_completed.connect(clear_arrows_animated)
+			_arrow_layer.add_child(arrow)
+			_active_arrows.append(arrow)
+
 		game_director.declare_attack(local_player, attacker, null)
 		return
 
@@ -1197,6 +1295,22 @@ func _complete_attack(target: CardInstance) -> void:
 		return
 
 	var attacker := _pending_card
+	var attacker_view := _card_views.get(attacker.instance_id, null)
+	if attacker_view:
+		var start :Vector2= attacker_view.global_position + attacker_view.size / 2.0
+		var end: Vector2
+		if target:
+			var target_view := _card_views.get(target.instance_id, null)
+			if target_view:
+				end = target_view.global_position + target_view.size / 2.0
+		else:
+			end = _get_opponent_lp_position(attacker.controller)
+		
+		var arrow = CurvedArrow.attacking(start, end)
+		arrow.animation_completed.connect(clear_arrows_animated)
+		_arrow_layer.add_child(arrow)
+		_active_arrows.append(arrow)
+
 	_cancel_pending()
 	game_director.declare_attack(local_player, attacker, target)
 
@@ -1417,6 +1531,9 @@ func _cancel_pending() -> void:
 	_pending_targets.clear()
 	_targets_needed     = 0
 	_pending_tributes.clear()
+	 # Clear arrows
+	#clear_arrows_animated()
+
 	if _card_selector and _card_selector.visible:
 		_tributes_needed     = 0
 		_pending_discards.clear()
@@ -1804,10 +1921,10 @@ func _setup_hands() -> void:
 	hands_container.add_child(_hand_manager_p2)
 	
 	# Position them - DIFFERENT POSITIONS!
-	_hand_manager_p1.position = Vector2(0, 540)  # Bottom of screen
+	_hand_manager_p1.position = Vector2(0, 800)  # Bottom of screen
 	_hand_manager_p1.size = Vector2(size.x, 1)
 	
-	_hand_manager_p2.position = Vector2(0, 0)    # Top of screen
+	_hand_manager_p2.position = Vector2(0, 100)    # Top of screen
 	_hand_manager_p2.size = Vector2(size.x, 1)
 	
 	# Setup with players

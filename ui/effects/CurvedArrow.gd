@@ -190,8 +190,8 @@ func _draw_arrow_head(position: Vector2) -> void:
 	
 	# Create arrow head points
 	var tip = position
-	var left = tip + direction.rotated(ARROW_HEAD_ANGLE) * ARROW_HEAD_SIZE
-	var right = tip + direction.rotated(-ARROW_HEAD_ANGLE) * ARROW_HEAD_SIZE
+	var left = tip + direction.rotated(-ARROW_HEAD_ANGLE) * ARROW_HEAD_SIZE
+	var right = tip + direction.rotated(ARROW_HEAD_ANGLE) * ARROW_HEAD_SIZE
 	
 	# Draw filled arrow head
 	var points = PackedVector2Array([tip, left, right])

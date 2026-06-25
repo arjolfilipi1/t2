@@ -12,7 +12,7 @@ const CARD_WIDTH := 100.0
 const CARD_HEIGHT := 145.0
 const CARD_SPACING := 8.0 
 const EXPANDED_SPACING := 20.0 
-const HOVER_OFFSET_Y := -30.0 
+const HOVER_OFFSET_Y := -40.0 
 const EXPAND_SCALE := 1.2 
 const FAN_ANGLE_DEG := 10.0 
 const FAN_ARC_Y := 12.0 
@@ -89,10 +89,13 @@ func show_hand() -> void:
 	_is_expanded = true
 	_update_hand_layout()
 	hand_visibility_changed.emit(true)
+var i :=0
 func hide_hand() -> void:
+	i +=1
 	if not _is_expanded:
 		return
 	_is_expanded = false
+	expand_button.text = "▲ Hand" if _is_expanded else "▼ Hand"
 	_update_hand_layout()
 	hand_visibility_changed.emit(false)
 func get_card_at_position(pos: Vector2) -> CardInstance:
@@ -103,7 +106,7 @@ func get_card_at_position(pos: Vector2) -> CardInstance:
 	return null
 func on_node_ready():
 	size = Vector2(size.x,1)
-	print("hand size:",size)
+
 # ─── Hand Layout ──────────────────────────────────────────────────────────────────
 func _refresh_hand() -> void:
 	if not _is_setup or not hand_container:
@@ -127,7 +130,7 @@ func _refresh_hand() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-		print("hand click ",name,"filter",mouse_filter)
+		print("hand click ",name,"filter",_is_expanded)
 func _create_card_view(card: CardInstance) -> CardView:
 	const CardViewScene := preload("res://ui/card/CardView.tscn")
 	var view := CardViewScene.instantiate() as CardView
@@ -172,7 +175,7 @@ func _update_hand_layout() -> void:
 		
 		var target_x := start_x + i * (CARD_WIDTH + spacing)
 		var t :float= float(i) / max(count - 1, 1)
-		var arc_y :float= sin(t * PI) * (-FAN_ARC_Y if not _is_expanded else 0) if _player.is_human else sin(t * PI) * (+FAN_ARC_Y if not _is_expanded else 0)
+		var arc_y :float= sin(t * PI) * (-FAN_ARC_Y if not _is_expanded else-FAN_ARC_Y *0.5) if _player.is_human else sin(t * PI) * (+FAN_ARC_Y if not _is_expanded else +FAN_ARC_Y*0.5)
 		var rotation := lerp(-FAN_ANGLE_DEG, FAN_ANGLE_DEG, t)
 		
 		if _is_expanded:
@@ -180,33 +183,16 @@ func _update_hand_layout() -> void:
 		
 		var y_offset := 0.0
 		if _is_expanded:
-			y_offset = CARD_HEIGHT * 0.7
+			y_offset =  - CARD_HEIGHT * 0.7 if _player.is_human else  CARD_HEIGHT * 0.7 
 		elif _hovered_card == card:
 			y_offset = HOVER_OFFSET_Y
 		
 		var target_pos := Vector2(target_x, y_offset + arc_y)
 		_card_positions[card.instance_id] = target_pos
 		
-		_animate_card_to(view, target_pos, rotation)
+		view.animate_move_to(target_pos, deg_to_rad(rotation))
 
 
-func _animate_card_to(view: CardView, target_pos: Vector2, rotation: float) -> void:
-	# Create a tween for smooth animation
-	if not view:
-		return
-	var tw := view.create_tween()
-	tw.set_ease(Tween.EASE_OUT)
-	tw.set_trans(Tween.TRANS_QUINT)
-	tw.set_parallel(true)
-	
-	tw.tween_property(view, "position", target_pos, ANIMATION_DURATION)
-	tw.tween_property(view, "rotation", deg_to_rad(rotation), ANIMATION_DURATION)
-	
-	# Z-index: hovered card on top
-	if view == _get_hovered_view():
-		view.z_index = 10
-	else:
-		view.z_index = 5
 
 # ─── Hover Expansion (Card Pushes Others) ──────────────────────────────────────
 func _on_card_hover_entered(card: CardInstance) -> void:
@@ -270,25 +256,19 @@ func _update_hand_with_expanded(hovered_index: int) -> void:
 			y_offset = HOVER_OFFSET_Y
 			scale = EXPAND_SCALE
 			view.z_index = 10
+			
 		elif abs(i - hovered_index) == 1:
 			# Adjacent cards: slight push
 			y_offset = HOVER_OFFSET_Y * 0.3
 			scale = 1.0
 		else:
-			view.z_index = 5
+			y_offset = 0
+			scale = 1.0
 		
 		var target_pos := Vector2(target_x, y_offset + arc_y)
-		_animate_card_to_with_scale(view, target_pos, rotation, scale)
+		view.animate_move_to(target_pos, deg_to_rad(rotation))
 
-func _animate_card_to_with_scale(view: CardView, target_pos: Vector2, rotation: float, scale: float) -> void:
-	var tw := view.create_tween()
-	tw.set_ease(Tween.EASE_OUT)
-	tw.set_trans(Tween.TRANS_QUINT)
-	tw.set_parallel(true)
-	
-	tw.tween_property(view, "position", target_pos, ANIMATION_DURATION)
-	tw.tween_property(view, "rotation", deg_to_rad(rotation), ANIMATION_DURATION)
-	tw.tween_property(view, "scale", Vector2(scale, scale), ANIMATION_DURATION)
+
 
 
 
@@ -297,7 +277,7 @@ func _on_card_clicked(view: CardView) -> void:
 	if view and view.card:
 		card_selected.emit(view.card)
 
-func _on_card_inspected(card: CardInstance) -> void:
+func _on_card_inspected(view: CardView) -> void:
 	# Show card detail popup
 	pass
 

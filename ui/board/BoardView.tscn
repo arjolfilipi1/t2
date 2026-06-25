@@ -26,13 +26,6 @@ mouse_filter = 2
 theme = ExtResource("4_theme")
 script = ExtResource("1_board_script")
 
-[node name="Hands" type="Control" parent="."]
-visibility_layer = 2
-anchors_preset = 0
-offset_right = 40.0
-offset_bottom = 40.0
-mouse_filter = 2
-
 [node name="Background" type="ColorRect" parent="."]
 visible = false
 z_index = -2
@@ -425,3 +418,10 @@ grow_vertical = 2
 
 [node name="CardTooltip" parent="." instance=ExtResource("4_p2rda")]
 layout_mode = 1
+
+[node name="Hands" type="Control" parent="."]
+visibility_layer = 2
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+mouse_filter = 2

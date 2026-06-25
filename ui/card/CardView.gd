@@ -100,18 +100,20 @@ const Z_INDEX_ATTACKING = 8 # Attacking cards
 # creates different concrete types than a hand-authored .tscn would.
 # Access is always guarded through is_node_ready() in bind().
 
-@onready var pivot:            Control        = $Pivot
-@onready var front_face:       Control       = $Pivot/FrontFace   ## Control in builder, TextureRect in .tscn
-@onready var back_face:        Control       = $Pivot/BackFace    ## ColorRect in builder
-@onready var artwork:          Control       = $Pivot/FrontFace/Artwork  ## ColorRect or TextureRect
-@onready var name_label:       Label         = $Pivot/FrontFace/NameLabel
-@onready var type_bar:         Label         = $Pivot/FrontFace/TypeBar
-@onready var level_row:        HBoxContainer = $Pivot/FrontFace/LevelRow
-@onready var atk_label:        Label         = $Pivot/FrontFace/AtkLabel
-@onready var def_label:        Label         = $Pivot/FrontFace/DefLabel
-@onready var counter_badge:    Label         = $Pivot/FrontFace/CounterBadge
-@onready var glow_rect:        ColorRect     = $GlowRect
-@onready var selection_border: Control       = $SelectionBorder  ## Panel in .tscn, Control ok
+@onready var pivot:            Control       = $VisualRoot/Pivot
+@onready var visual_root:      Control       = $VisualRoot
+@onready var front_face:       Control       = $VisualRoot/Pivot/FrontFace   ## Control in builder, TextureRect in .tscn
+@onready var back_face:        Control       = $VisualRoot/Pivot/BackFace    ## ColorRect in builder
+@onready var artwork:          Control       = $VisualRoot/Pivot/FrontFace/Artwork  ## ColorRect or TextureRect
+@onready var name_label:       Label         = $VisualRoot/Pivot/FrontFace/NameLabel
+@onready var type_bar:         Label         = $VisualRoot/Pivot/FrontFace/TypeBar
+@onready var level_row:        HBoxContainer = $VisualRoot/Pivot/FrontFace/LevelRow
+@onready var atk_label:        Label         = $VisualRoot/Pivot/FrontFace/AtkLabel
+@onready var def_label:        Label         = $VisualRoot/Pivot/FrontFace/DefLabel
+@onready var counter_badge:    Label         = $VisualRoot/Pivot/FrontFace/CounterBadge
+@onready var glow_rect:        ColorRect     = $VisualRoot/GlowRect
+@onready var hover_rect:       ColorRect     = $VisualRoot/hoverRect
+@onready var selection_border: Control       = $VisualRoot/SelectionBorder  ## Panel in .tscn, Control ok
 
 # ─── State ────────────────────────────────────────────────────────────────────
 
@@ -119,6 +121,7 @@ var card: CardInstance = null     ## The domain object this view represents
 var glow_state: GlowState = GlowState.NONE
 var _is_face_up: bool = false
 var _is_hovered: bool = false
+var original_pos:Vector2
 # ─── Animation Priority System ──────────────────────────────────────────────────
 enum AnimPriority {
 	IDLE = 0,
@@ -148,8 +151,10 @@ func _ready() -> void:
 	#size = Vector2(CARD_W, CARD_H)
 	pivot_offset = Vector2(CARD_W / 2.0, CARD_H / 2.0)
 
-	mouse_entered.connect(_on_mouse_entered)
-	mouse_exited.connect(_on_mouse_exited)
+	visual_root.mouse_entered.connect(_on_mouse_entered)
+	visual_root.mouse_exited.connect(_on_mouse_exited)
+	visual_root.gui_input.connect(_on_gui_input)
+
 	gui_input.connect(_on_gui_input)
 
 	selection_border.visible = false
@@ -161,7 +166,7 @@ func _ready() -> void:
 		_connect_card_signals()
 		_refresh_display()
 	
-		
+	print("st:",hover_rect)
 
 func _connect_card_signals() -> void:
 	if card == null:
@@ -437,16 +442,16 @@ func _kill_hover_tween() -> void:
 	
 ## Animate this card moving to a new global position.
 ## Called by BoardView after it repositions the card's parent container.
-func animate_move_to(target_global: Vector2) -> Signal:
-	set_priority(AnimPriority.MOVE)
+func animate_move_to(target_global: Vector2,target_rotation:=0,target_scale:=Vector2.ONE) -> Signal:
+	set_priority(AnimPriority.HOVER)
 	_kill_hover_tween()
-	var start := global_position
 	var tw    := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.set_trans(Tween.TRANS_QUINT)
-	tw.tween_method(func(t: float):
-		global_position = start.lerp(target_global, t)
-	, 0.0, 1.0, MOVE_DURATION)
+	tw.set_parallel(true)
+	tw.tween_property(self,"position",target_global,0.15)
+	tw.tween_property(self,"rotation",target_rotation,0.15)
+	tw.tween_property(self,"scale",target_scale,0.15)
 	_move_tween = tw
 	tw.finished.connect(func():
 		set_priority(AnimPriority.IDLE)
@@ -474,6 +479,7 @@ func animate_summon() -> Signal:
 	set_priority(AnimPriority.MOVE)
 	_kill_hover_tween()
 	_is_hovered = false
+	hover_rect.visible = false
 	scale = Vector2(0.6, 0.6)
 	modulate.a = 0.0
 	var tw := create_tween()
@@ -620,14 +626,19 @@ func _on_mouse_entered() -> void:
 	if _hover_tween and _hover_tween.is_valid():
 		_hover_tween.kill()
 	_is_hovered = true
+	hover_rect.visible = true
+	z_index = Z_INDEX_HOVER
 	set_priority(AnimPriority.HOVER)
-	
+	original_pos = position
+
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT_IN)
-	tw.tween_property(self, "position:y", position.y + HOVER_LIFT, 0.12)
-	tw.parallel().tween_property(self, "scale", Vector2(1.06, 1.06), 0.12)
+	tw.tween_property(visual_root, "position:y", visual_root.position.y + HOVER_LIFT, 0.08)
+	tw.parallel().tween_property(visual_root, "scale", Vector2(1.06, 1.06), 0.08)
+	tw.finished.connect(func():print("hover finish ",rotation))
 	_hover_tween = tw
-	z_index = Z_INDEX_HOVER
+	print("card hover")
+	
 func _on_mouse_exited() -> void:
 	if _current_priority >= AnimPriority.MOVE:
 		return
@@ -640,10 +651,11 @@ func _on_mouse_exited() -> void:
 	else:
 		target_y_pos = position.y - HOVER_LIFT
 	_is_hovered = false
+	hover_rect.visible = false
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT_IN)
-	tw.tween_property(self, "position:y",target_y_pos , 0.12)
-	tw.parallel().tween_property(self, "scale", Vector2.ONE, 0.12)
+	tw.tween_property(visual_root, "position",Vector2.ZERO , 0.12)
+	tw.parallel().tween_property(visual_root, "scale", Vector2.ONE, 0.12)
 	_hover_tween = tw
 	z_index = Z_INDEX_FIELD if card.is_on_field() else Z_INDEX_HAND
 func is_on_field() -> bool:
@@ -689,6 +701,9 @@ func reset_for_field() ->void:
 	rotation =0.0
 	z_index = Z_INDEX_FIELD
 	_is_hovered = false
+	
+	if hover_rect:
+		hover_rect.visible = false
 	scale = Vector2.ONE
 	position = Vector2.ZERO
 	modulate = Color.WHITE

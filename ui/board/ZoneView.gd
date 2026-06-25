@@ -16,7 +16,8 @@ extends Control
 
 ## Player clicked an empty zone slot (summon / set destination).
 signal empty_slot_clicked(zone_view: ZoneView)
-
+signal empty_slot_entered(zone_view: ZoneView)
+signal empty_slot_exited(zone_view: ZoneView)
 ## Player dropped a card onto this zone.
 signal card_dropped(zone_view: ZoneView, card_view: CardView)
 
@@ -223,10 +224,11 @@ func _on_gui_input(event: InputEvent) -> void:
 
 func _on_mouse_entered() -> void:
 	if _card_view == null and not _is_drop_highlight:
-		
+		empty_slot_entered.emit(self)
 		modulate = Color(1.7, 1.7, 1.7)
 
 func _on_mouse_exited() -> void:
+	empty_slot_exited.emit(self)
 	modulate = Color.WHITE
 
 # ─── Child Construction ───────────────────────────────────────────────────────

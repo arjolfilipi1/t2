@@ -406,13 +406,13 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		# Use global_position for accurate click detection
 		var target_node = get_ui_node_at_position(self, event.global_position)
-		
-		if target_node:
-			while target_node:
-				print("Click went to: ",target_node.get_parent().name if target_node.get_parent() else "" ,";", target_node.name)
-				target_node = target_node.get_parent()
-		else:
-			print("Click went to: None (Empty Space)")
+		#
+		#if target_node:
+			#while target_node:
+				#print("Click went to: ",target_node.get_parent().name if target_node.get_parent() else "" ,";", target_node.name)
+				#target_node = target_node.get_parent()
+		#else:
+			#print("Click went to: None (Empty Space)")
 
 func get_ui_node_at_position(current_node: Node, click_pos: Vector2) -> Control:
 	# Check children backwards to prioritize front-most UI elements first
