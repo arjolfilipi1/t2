@@ -154,9 +154,10 @@ func _ready() -> void:
 	visual_root.mouse_entered.connect(_on_mouse_entered)
 	visual_root.mouse_exited.connect(_on_mouse_exited)
 	visual_root.gui_input.connect(_on_gui_input)
-
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
 	gui_input.connect(_on_gui_input)
-
+	print("created node for ",card.definition.card_name)
 	selection_border.visible = false
 	counter_badge.visible    = false
 	#_apply_glow_shader()
@@ -166,7 +167,6 @@ func _ready() -> void:
 		_connect_card_signals()
 		_refresh_display()
 	
-	print("st:",hover_rect)
 
 func _connect_card_signals() -> void:
 	if card == null:
@@ -627,6 +627,7 @@ func _on_mouse_entered() -> void:
 		_hover_tween.kill()
 	_is_hovered = true
 	hover_rect.visible = true
+	print("gr:",glow_rect.visible,"hr:",hover_rect.visible)
 	z_index = Z_INDEX_HOVER
 	set_priority(AnimPriority.HOVER)
 	original_pos = position
@@ -635,7 +636,8 @@ func _on_mouse_entered() -> void:
 	tw.set_ease(Tween.EASE_OUT_IN)
 	tw.tween_property(visual_root, "position:y", visual_root.position.y + HOVER_LIFT, 0.08)
 	tw.parallel().tween_property(visual_root, "scale", Vector2(1.06, 1.06), 0.08)
-	tw.finished.connect(func():print("hover finish ",rotation))
+	#tw.parallel().tween_property(self, "rotation", deg_to_rad(2.0), 0.12)
+
 	_hover_tween = tw
 	print("card hover")
 	
@@ -670,6 +672,7 @@ func _on_gui_input(event: InputEvent) -> void:
 				print("clicked: ",card.definition.card_name , " stack: ", get_stack())
 				card_clicked.emit(self)
 			elif event.button_index == MOUSE_BUTTON_RIGHT:
+				print("gr:",glow_rect.visible,"hr:",hover_rect.visible)
 				card_inspected.emit(self)
 
 # ─── Domain Signal Handlers ───────────────────────────────────────────────────

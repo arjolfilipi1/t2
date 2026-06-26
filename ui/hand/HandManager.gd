@@ -50,8 +50,8 @@ func _ready() -> void:
 func setup(player: Player, hand_zone: Zone) -> void:
 	_player = player
 	_cards = hand_zone.get_cards()
-	if _is_setup:
-		_refresh_hand()
+	#if _is_setup:
+		#_refresh_hand()
 
 # ─── Public API ──────────────────────────────────────────────────────────────────
 func refresh_hand(hand_zone: Zone) -> void:
@@ -111,21 +111,20 @@ func on_node_ready():
 func _refresh_hand() -> void:
 	if not _is_setup or not hand_container:
 		return
-	
-	# Clean up old views
-	var children_to_remove = hand_container.get_children().duplicate()
-	for child in children_to_remove:
-		hand_container.remove_child(child)
-		child.queue_free()
-	_card_views.clear()
-	
-	# Create new views for each card
-	for card in _cards:
-		var view = _create_card_view(card)
-		if view:
+	var existing := {}
+	for card:CardInstance in _cards:
+		var view:CardView = _card_views.get(card.instance_id)
+		if view == null:
+			view = _create_card_view(card)
 			hand_container.add_child(view)
 			_card_views[card.instance_id] = view
-	
+		existing[card.instance_id] = true
+	for id in _card_views.keys():
+		if not existing.has(id):
+			var view:CardView = _card_views[id]
+			hand_container.remove_child(view)
+			view.queue_free()
+			_card_views.erase(id)
 	_update_hand_layout()
 
 func _input(event: InputEvent) -> void:
