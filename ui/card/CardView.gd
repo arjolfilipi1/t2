@@ -142,7 +142,7 @@ var _move_tween: Tween = null
 var _action_tween: Tween = null
 var _flip_tween: Tween = null
 var _glow_tween: Tween = null
-
+var _selection_tween: Tween = null
 
 # ─── Initialization ───────────────────────────────────────────────────────────
 
@@ -529,6 +529,14 @@ func animate_attack_lunge(target_global: Vector2) -> Signal:
 
 func animate_take_hit() -> Signal:
 	set_priority(AnimPriority.ATTACK)
+	var particles = GPUParticles2D.new()
+	particles.amount = 20
+	particles.lifetime = 0.3
+	particles.one_shot = true
+	particles.emitting = true
+	particles.position = Vector2(CARD_W/2, CARD_H/2)
+	add_child(particles)
+
 	var home := position
 	var tw   := create_tween()
 	tw.set_parallel(false)
@@ -609,7 +617,15 @@ func set_selected(selected: bool) -> void:
 	selection_border.visible = selected
 	if selected:
 		set_glow(GlowState.SELECTED)
+		var tw := create_tween()
+		tw.set_loops()
+		tw.tween_property(selection_border, "modulate:a", 0.5, 0.5)
+		tw.tween_property(selection_border, "modulate:a", 1.0, 0.5)
+		_selection_tween = tw
+
 	else:
+		if _selection_tween:
+			_selection_tween.kill()
 		set_glow(GlowState.NONE)
 func debug_glow()->void:
 	print("gr pos:",glow_rect.position)

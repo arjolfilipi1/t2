@@ -400,7 +400,6 @@ func _has_any_legal_action(player: Player, phase: TurnContext.Phase) -> bool:
 
 func _on_phase_changed(_old: TurnContext.Phase, _new: TurnContext.Phase, ctx: TurnContext) -> void:
 	phase_changed.emit(ctx.phase_name(), tm.current_turn(), tm.active_player())
-	#_try_auto_advance()
 func _on_active_player_changed(player: Player) -> void:
 	active_player_changed.emit(player)
 

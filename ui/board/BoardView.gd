@@ -216,6 +216,7 @@ func setup(
 	effect_stack = stack
 	players      = player_list
 	game_director = gd
+	game_director.phase_changed.connect(_on_phase_changed)
 	local_player  = player_list[0]
 	_setup_hands()
 	_build_animation_queue()
@@ -407,34 +408,19 @@ func _build_zone_views_from_scene() -> void:
 		deck_zv.setup(zone_manager.deck_of(player), -1, "DECK")
 		_pile_views["%s_deck" % pid] = deck_zv
 
-
-
-# ─── HUD Construction ─────────────────────────────────────────────────────────
-
-
-func _make_lp_label(text: String, pos: Vector2) -> Label:
-	var lbl := Label.new()
-	lbl.text     = text
-	lbl.position = pos
-	lbl.size     = Vector2(160, 22)
-	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.modulate = Color(0.95, 0.9, 0.6)
-	add_child(lbl)
-	return lbl
-
-
 # ─── Card View Lifecycle ──────────────────────────────────────────────────────
 
 func get_or_create_card_view(card: CardInstance) -> CardView:
-	if card.is_in_hand():
-		var hand_manager = _hand_manager_p1 if card.controller == players[0] else _hand_manager_p2
-		if hand_manager:
-			var views = hand_manager.get_card_views()
-			if views.has(card.instance_id):
-				return views[card.instance_id]
+	if card: 
+		if card.is_in_hand():
+			var hand_manager = _hand_manager_p1 if card.controller == players[0] else _hand_manager_p2
+			if hand_manager:
+				var views = hand_manager.get_card_views()
+				if views.has(card.instance_id):
+					return views[card.instance_id]
 
-	if _card_views.has(card.instance_id):
-		return _card_views[card.instance_id]
+		if _card_views.has(card.instance_id):
+			return _card_views[card.instance_id]
 	const CardViewScene := preload("res://ui/card/CardView.tscn")
 	var view := CardViewScene.instantiate() as CardView
 	view.bind(card)
@@ -620,10 +606,21 @@ func deselect_all() -> void:
 # ─── HUD Update API ───────────────────────────────────────────────────────────
 
 func update_lp(player: Player, lp: int) -> void:
-	if player == players[0]:
-		p1_lp_label.text = "P1 LP: %d" % lp
-	else:
-		p2_lp_label.text = "P2 LP: %d" % lp
+	var label = p1_lp_label if player == players[0] else p2_lp_label
+	var old_lp = int(label.text.split(": ")[1]) if label.text.contains(":") else lp
+	
+	label.text = "P%d LP: %d" % [player.player_id, lp]
+	
+	# ✅ Flash red on damage, green on heal
+	if lp < old_lp:
+		label.modulate = Color.RED
+		var tw = create_tween()
+		tw.tween_property(label, "modulate", Color.WHITE, 0.3)
+	elif lp > old_lp:
+		label.modulate = Color.GREEN
+		var tw = create_tween()
+		tw.tween_property(label, "modulate", Color.WHITE, 0.3)
+
 
 func update_phase(phase_name: String, turn: int, active_player: int) -> void:
 	update_legal_glows()
@@ -1965,3 +1962,14 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_ALT:
 			# Hold Alt to view board (hide hand automatically)
 			_hand_manager_p1.hide_hand()
+func _on_phase_changed(phase_name: String, turn: int, active_player: Player) -> void:
+	# ✅ Phase transition flash
+	var flash := ColorRect.new()
+	flash.color = Color.WHITE
+	flash.modulate.a = 0.3
+	flash.size = size
+	add_child(flash)
+	
+	var tw = create_tween()
+	tw.tween_property(flash, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(func(): flash.queue_free())
