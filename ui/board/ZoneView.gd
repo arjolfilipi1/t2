@@ -225,11 +225,18 @@ func _on_gui_input(event: InputEvent) -> void:
 func _on_mouse_entered() -> void:
 	if _card_view == null and not _is_drop_highlight:
 		empty_slot_entered.emit(self)
-		modulate = Color(1.7, 1.7, 1.7)
+		# ✅ Subtle glow on empty zone hover
+		modulate = Color(1.3, 1.3, 1.3)
+		# Add a slight scale
+		var tw = create_tween()
+		tw.tween_property(self, "scale", Vector2(1.03, 1.03), 0.1)
 
 func _on_mouse_exited() -> void:
 	empty_slot_exited.emit(self)
 	modulate = Color.WHITE
+	var tw = create_tween()
+	tw.tween_property(self, "scale", Vector2.ONE, 0.1)
+
 
 # ─── Child Construction ───────────────────────────────────────────────────────
 

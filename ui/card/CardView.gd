@@ -106,6 +106,7 @@ const Z_INDEX_ATTACKING = 8 # Attacking cards
 @onready var back_face:        Control       = $VisualRoot/Pivot/BackFace    ## ColorRect in builder
 @onready var artwork:          Control       = $VisualRoot/Pivot/FrontFace/Artwork  ## ColorRect or TextureRect
 @onready var name_label:       Label         = $VisualRoot/Pivot/FrontFace/NameLabel
+@onready var bg:               ColorRect         = $VisualRoot/Pivot/FrontFace/Background
 @onready var type_bar:         Label         = $VisualRoot/Pivot/FrontFace/TypeBar
 @onready var level_row:        HBoxContainer = $VisualRoot/Pivot/FrontFace/LevelRow
 @onready var atk_label:        Label         = $VisualRoot/Pivot/FrontFace/AtkLabel
@@ -236,10 +237,19 @@ func _refresh_display() -> void:
 	if def.is_monster():
 		var attr_str :String = CardDefinition.Attribute.keys()[def.attribute]
 		type_bar.text = "%s / %s / %s" % [attr_str, def.monster_type, CardDefinition.MonsterKind.keys()[def.monster_kind]]
+		match def.attribute:
+			CardDefinition.Attribute.DARK: type_bar.modulate = Color(0.5, 0.1, 0.6)
+			CardDefinition.Attribute.LIGHT: type_bar.modulate = Color(0.9, 0.9, 0.5)
+			CardDefinition.Attribute.FIRE: type_bar.modulate = Color(0.9, 0.3, 0.1)
+			CardDefinition.Attribute.WATER: type_bar.modulate = Color(0.2, 0.5, 0.9)
+			CardDefinition.Attribute.EARTH: type_bar.modulate = Color(0.5, 0.4, 0.2)
+			CardDefinition.Attribute.WIND: type_bar.modulate = Color(0.3, 0.8, 0.3)
 	elif def.is_spell():
 		type_bar.text = "SPELL — %s" % CardDefinition.SpellType.keys()[def.spell_type]
+		bg.modulate = Color(0.3, 0.8, 0.3)
 	else:
 		type_bar.text = "TRAP — %s" % CardDefinition.TrapType.keys()[def.trap_type]
+		bg.modulate = Color(0.9, 0.3, 0.1)
 
 	# Stars / rank / link
 	_refresh_level_stars(def.level if def.is_monster() else 0, def.monster_kind)
@@ -444,7 +454,7 @@ func _kill_hover_tween() -> void:
 ## Called by BoardView after it repositions the card's parent container.
 func animate_move_to(target_global: Vector2,target_rotation:=0,target_scale:=Vector2.ONE) -> Signal:
 	set_priority(AnimPriority.HOVER)
-	_kill_hover_tween()
+	#_kill_hover_tween()
 	var tw    := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.set_trans(Tween.TRANS_QUINT)
@@ -694,9 +704,13 @@ func _on_gui_input(event: InputEvent) -> void:
 # ─── Domain Signal Handlers ───────────────────────────────────────────────────
 
 func _on_stat_changed(_card: CardInstance, stat: StringName, _old: int, new_val: int) -> void:
-	match stat:
-		&"atk": atk_label.text = "ATK  %d" % new_val
-		&"def": def_label.text = "DEF  %d" % new_val
+	var label = atk_label if stat == &"atk" else def_label
+	label.text = "ATK  %d" % new_val if stat == &"atk" else "DEF  %d" % new_val
+	# ✅ Flash stat change
+	label.modulate = Color.GREEN if new_val > _old else Color.RED
+	var tw = create_tween()
+	tw.tween_property(label, "modulate", Color.WHITE, 0.5)
+
 
 func _on_counter_changed(_card: CardInstance, _name: StringName, _old: int, _new: int) -> void:
 	_refresh_counters()

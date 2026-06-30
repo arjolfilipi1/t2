@@ -35,12 +35,15 @@ var _pile_viewer: PileViewer = null
 @onready var field_divider: Control = $FieldDivider
 @onready var p1_lp_label: Label = $P1_InfoBar/P1_LP
 @onready var p2_lp_label: Label = $P2_InfoBar/P2_LP
-@onready var phase_label: Label = $HUD_Bar/PhaseLabel
-@onready var turn_label: Label = $HUD_Bar/TurnLabel
+@onready var phase_label: Label = $TurnInfo/PhaseLabel
+@onready var turn_label: Label = $TurnInfo/TurnNumber
+@onready var error_label: Label = $HUD_Bar/ErrorLabel
+@onready var prio_label: Label = $TurnInfo/PrioHolder
 @onready var pass_button: Button = $HUD_Bar/PassButton
 @onready var end_button: Button = $HUD_Bar/EndButton
 @onready var draw_button: Button = $"HUD_Bar/Draw Button"
 @onready var chain_hud: Panel = $ChainDisplay
+@onready var chain_links_container:HBoxContainer = $ChainDisplay/ChainLinks
 @onready var tooltip: CardTooltip = $CardTooltip
 
 # ─── Zone Containers (to be populated dynamically) ────────────────────────
@@ -626,17 +629,21 @@ func update_phase(phase_name: String, turn: int, active_player: int) -> void:
 	update_legal_glows()
 	phase_label.text = phase_name
 	turn_label.text  = "Turn %d — Player %d" % [turn, active_player]
+	if active_player ==1:
+		turn_label.modulate = Color.GREEN
+	else:
+		turn_label.modulate = Color.RED
 
 func update_chain_hud(links: Array) -> void:
 	if not chain_hud:
 		return
-	for child in chain_hud.get_children():
-		child.queue_free()
 	
-	var chain_links_container = chain_hud.get_node_or_null("ChainLinks")
+	
 	if not chain_links_container:
 		return
-		
+	for child in chain_links_container.get_children():
+		child.queue_free()
+	
 	var x := 0.0
 	for link in links:
 		var cl: ChainLink = link
@@ -753,6 +760,7 @@ func _on_zone_changed(zone: Zone) -> void:
 
 func _on_chain_link_pushed(link: ChainLink) -> void:
 	var view := _card_views.get(link.source_card.instance_id, null)
+	
 	_cancel_auto_pass()
 	if view:
 		anim_queue.enqueue(func() -> Signal: return view.animate_effect_activate(), "activate")
@@ -770,21 +778,28 @@ func _on_chain_resolved(_links: Array) -> void:
 	update_chain_hud([])
 	clear_all_glows()
 	pass_button.visible = false
+	prio_label.modulate = Color.WHITE
 func _on_priority_passed(to_player: Player) -> void:
-	turn_label.modulate = Color(0.3, 0.9, 1.0) if to_player == players[0] else Color(0.9, 0.4, 0.4)
+	var color = Color.WHITE
+	if to_player != local_player:
+		color = Color(0.3, 0.9, 1.0)
+	elif to_player == local_player:
+		color = Color(0.9, 0.4, 0.4)
+	prio_label.modulate = color
 	# Show pass button only when local player holds priority on open chain
 	pass_button.visible = (to_player != local_player )
-	if to_player != local_player and _auto_pass_enabled:
+	if to_player != local_player :
 		update_legal_glows()
 		# Check if the player has ANY legal actions
-		var has_actions = _check_player_has_actions()
-		
-		if not has_actions:
-			# No actions - start auto-pass timer
-			_start_auto_pass()
-		else:
-			# Has actions - cancel any pending auto-pass
-			_cancel_auto_pass()
+		if _auto_pass_enabled:
+			var has_actions = _check_player_has_actions()
+			
+			if not has_actions:
+				# No actions - start auto-pass timer
+				_start_auto_pass()
+			else:
+				# Has actions - cancel any pending auto-pass
+				_cancel_auto_pass()
 	else:
 		# Priority is not ours - cancel auto-pass
 		clear_all_glows()
@@ -1017,13 +1032,13 @@ func _complete_zone_selection(zone_view: ZoneView) -> void:
 func _show_error(message: String) -> void:
 	print("Error: %s" % message)
 	# Optional: Show a temporary error label
-	if turn_label:
-		var old_text = turn_label.text
-		turn_label.text = message
-		turn_label.modulate = Color(1.0, 0.3, 0.3)
+	if error_label:
+		var old_text = error_label.text
+		error_label.text = message
+		error_label.modulate = Color(1.0, 0.3, 0.3)
 		await get_tree().create_timer(1.5).timeout
-		turn_label.text = old_text
-		turn_label.modulate = Color(0.7, 0.7, 0.7)
+		error_label.text = old_text
+		error_label.modulate = Color(0.7, 0.7, 0.7)
 # ─── Tooltip Action Routing ───────────────────────────────────────────────────
 
 func _on_tooltip_action(action: int, card: CardInstance) -> void:
@@ -1546,13 +1561,13 @@ func _cancel_pending() -> void:
 	_hide_cancel_hint()
 
 func _show_cancel_hint(text: String) -> void:
-	if turn_label != null:
-		turn_label.text    = text
-		turn_label.modulate = Color(1.0, 0.8, 0.3)
+	if error_label != null:
+		error_label.text    = text
+		error_label.modulate = Color(1.0, 0.8, 0.3)
 
 func _hide_cancel_hint() -> void:
-	if turn_label != null:
-		turn_label.modulate = Color(0.7, 0.7, 0.7)
+	if error_label != null:
+		error_label.modulate = Color(0.7, 0.7, 0.7)
 
 # ─── Keyboard Cancel ──────────────────────────────────────────────────────────
 
@@ -1635,8 +1650,8 @@ func _start_auto_pass() -> void:
 	
 	_is_waiting_for_auto_pass = true
 	_auto_pass_timer.start()
-	turn_label.text = "Auto-passing in %.1fs..." % _auto_pass_delay
-	turn_label.modulate = Color(0.5, 0.8, 0.5)
+	error_label.text = "Auto-passing in %.1fs..." % _auto_pass_delay
+	error_label.modulate = Color(0.5, 0.8, 0.5)
 
 ## Cancel the auto-pass timer
 func _cancel_auto_pass() -> void:
@@ -1649,7 +1664,7 @@ func _cancel_auto_pass() -> void:
 	# Reset turn label if it was showing auto-pass message
 	if turn_label and turn_label.text.begins_with("Auto-passing"):
 		turn_label.text = "Turn %d — Player %d" % [effect_stack._current_turn() if effect_stack else 1, local_player.player_id]
-		turn_label.modulate = Color(0.7, 0.7, 0.7)
+		#turn_label.modulate = Color(0.7, 0.7, 0.7)
 
 ## Called when the auto-pass timer expires
 func _on_auto_pass_timeout() -> void:

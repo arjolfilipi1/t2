@@ -254,15 +254,19 @@ func _update_hand_with_expanded(hovered_index: int) -> void:
 			# Hovered card: rise up and scale
 			y_offset = HOVER_OFFSET_Y
 			scale = EXPAND_SCALE
-			view.z_index = 10
+			view.z_index = view.Z_INDEX_HOVER+10
+			
+		
 			
 		elif abs(i - hovered_index) == 1:
 			# Adjacent cards: slight push
 			y_offset = HOVER_OFFSET_Y * 0.3
 			scale = 1.0
+			view.z_index = view.Z_INDEX_HAND
 		else:
 			y_offset = 0
 			scale = 1.0
+			view.z_index = view.Z_INDEX_HAND
 		
 		var target_pos := Vector2(target_x, y_offset + arc_y)
 		view.animate_move_to(target_pos, deg_to_rad(rotation))

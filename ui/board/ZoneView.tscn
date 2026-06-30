@@ -5,9 +5,17 @@
 [node name="ZoneView" type="Control"]
 custom_minimum_size = Vector2(108, 153)
 layout_mode = 3
-anchors_preset = 0
-offset_right = 108.0
-offset_bottom = 153.0
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -54.0
+offset_top = -76.5
+offset_right = 54.0
+offset_bottom = 76.5
+grow_horizontal = 2
+grow_vertical = 2
 script = ExtResource("1_zone_script")
 
 [node name="BG" type="ColorRect" parent="."]
