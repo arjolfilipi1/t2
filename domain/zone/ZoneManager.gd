@@ -107,11 +107,11 @@ func _build_player_zones(player: Player) -> void:
 func _make_zone(
 	id: String,
 	type: Zone.ZoneType,
-	owner: Player,
+	_owner: Player,
 	cap: int = -1,
 	slotted: bool = false
 ) -> Zone:
-	var z := Zone.new(StringName(id), type, owner, cap, slotted)
+	var z := Zone.new(StringName(id), type, _owner, cap, slotted)
 	_zones[z.zone_id] = z
 	return z
 

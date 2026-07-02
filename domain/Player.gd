@@ -8,7 +8,7 @@ extends RefCounted
 # ─── Signals ──────────────────────────────────────────────────────────────────
 
 signal life_points_changed(player: Player, old_lp: int, new_lp: int)
-signal hand_size_changed(player: Player, new_size: int)
+#signal hand_size_changed(player: Player, new_size: int)
 
 # ─── Identity ─────────────────────────────────────────────────────────────────
 

@@ -242,7 +242,6 @@ func _on_draw_phase_start() -> void:
 	var top := _zm.deck_of(player).peek_top()
 	_zm.move(top, _zm.hand_of(player), ZoneManager.MoveReason.DRAW)
 	card_drawn.emit(player, top)
-
 	# Evaluate draw triggers
 	_stack.evaluate_triggers(
 		GameEvent.card_drawn(top, player),

@@ -198,7 +198,9 @@ var _is_waiting_for_auto_pass: bool = false
 var _hand_manager_p1: HandManager = null
 var _hand_manager_p2: HandManager = null
 const HandManagerScene = preload("res://ui/hand/HandManager.tscn")
-
+# ─── Deck Top Card Tracking ──────────────────────────────────────────────────
+var _deck_top_views: Dictionary = {}  # player → CardView (the top card of deck)
+var _draw_animation_layer:Node = null
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(VIEWPORT_W, VIEWPORT_H)
@@ -206,7 +208,7 @@ func _ready() -> void:
 	_connect_info_bar_buttons()
 	_build_pile_viewer()
 	_connect_pile_buttons()
-
+	_setup_deck_top_display()
 
 func setup(
 		zm:          ZoneManager,
@@ -232,7 +234,7 @@ func setup(
 	if tooltip:
 		tooltip.action_selected.connect(_on_tooltip_action)
 	_build_effect_picker()
-	
+	gd.tm.card_drawn.connect(_on_card_drawn)
 	# Connect to ZoneManager
 	zone_manager.card_moved.connect(_on_card_moved)
 	zone_manager.zone_changed.connect(_on_zone_changed)
@@ -255,6 +257,67 @@ func setup(
 			if game_director.undo_manager != null:
 				game_director.undo_manager.snapshot_restored.connect(_on_snapshot_restored)
 	_setup_arrow_layer()
+func _on_card_drawn(player: Player, card: CardInstance) -> void:
+	# Get deck position
+	var deck_view := _pile_views.get("%s_deck" % ["p%d" % player.player_id], null)
+	if deck_view == null:
+		return
+	
+	var start_pos :Vector2= deck_view.global_position + Vector2(deck_view.size.x / 2, deck_view.size.y / 2)
+	
+	# Get hand position for this card (will be calculated after draw)
+	var hand_zone := zone_manager.hand_of(player)
+	var hand_cards := hand_zone.get_cards()
+	var card_index := hand_cards.find(card)
+	
+	# Calculate end position (where the card will be in hand)
+	var hand_y = HAND_Y_P1 if player == players[0] else HAND_Y_P2
+	var n := hand_cards.size()
+	var total_w := n * (CardView.CARD_W + 4)
+	var start_x := (VIEWPORT_W - total_w) / 2.0
+	
+	var t :float= float(card_index) / max(n - 1, 1)
+	var arc_y := sin(t * PI) * (-12.0 if player == players[0] else 12.0)
+	var end_pos := Vector2(
+		start_x + card_index * (CardView.CARD_W + 4) + CardView.CARD_W / 2,
+		hand_y + arc_y + CardView.CARD_H / 2
+	)
+	
+	# ─── Play draw animation ──────────────────────────────────────────────────
+	if _draw_animation_layer == null:
+		_setup_draw_animation_layer()
+	
+	var draw_anim := CardDrawAnimation.new()
+	_draw_animation_layer.add_child(draw_anim)
+	draw_anim.play_draw_animation(card, start_pos, end_pos, 0.35, player != players[0])
+	draw_anim.animation_completed.connect(_on_draw_animation_complete.bind(player))
+	
+	# Remove old deck top view (will be updated after animation)
+	if _deck_top_views.has(player) and _deck_top_views[player]:
+		var old_view = _deck_top_views[player]
+		if is_instance_valid(old_view):
+			old_view.queue_free()
+		_deck_top_views.erase(player)
+	
+	# Update deck top after animation
+	await draw_anim.animation_completed
+	print("draw_anim.animation_completed")
+	_update_deck_top_display(player)
+	refresh_hand(player)
+
+func _on_draw_animation_complete(player: Player) -> void:
+	# Update deck top display
+	print("dv: top")
+	_update_deck_top_display(player)
+	refresh_hand(player)
+
+func _setup_draw_animation_layer() -> void:
+	_draw_animation_layer = Node2D.new()
+	_draw_animation_layer.name = "DrawAnimationLayer"
+	_draw_animation_layer.z_index = 15
+	add_child(_draw_animation_layer)
+
+
 ## Create a targeting arrow from source to target (Cyan)
 func show_targeting_arrow(source: CardInstance, target: CardInstance, duration: float = 0.3) -> CurvedArrow:
 	var source_view = _card_views.get(source.instance_id, null)
@@ -430,6 +493,7 @@ func get_or_create_card_view(card: CardInstance) -> CardView:
 	view.card_clicked.connect(_on_card_clicked.bind(card))
 	view.card_inspected.connect(_on_card_inspected.bind(card))
 	_card_views[card.instance_id] = view
+	view.tree_exited.connect(func():_card_views.erase(card.instance_id))
 	return view
 
 func destroy_card_view(card: CardInstance) -> void:
@@ -583,8 +647,9 @@ func highlight_activatable(cards: Array) -> void:
 
 ## Remove all glow states.
 func clear_all_glows() -> void:
-	for view in _card_views.values():
-		view.set_glow(CardView.GlowState.NONE)
+	for view:CardView in _card_views.values():
+		if not view.card.current_zone.zone_type ==Zone.ZoneType.DECK and view.card.is_face_up(): 
+			view.set_glow(CardView.GlowState.NONE)
 		 # Clear HandManager glows
 	if _hand_manager_p1:
 		for view in _hand_manager_p1.get_card_views().values():
@@ -749,6 +814,8 @@ func _on_card_moved(
 
 	if _from.zone_type == Zone.ZoneType.HAND:
 		refresh_hand(card.controller)
+	elif _from.zone_type == Zone.ZoneType.DECK:
+		_on_card_drawn(card.controller,card)
 func _on_zone_changed(zone: Zone) -> void:
 	# Update pile count badges
 	var key := str(zone.zone_id)
@@ -773,6 +840,70 @@ func _on_chain_link_resolved(link: ChainLink, was_negated: bool) -> void:
 		if not was_negated:
 			anim_queue.enqueue(func() -> Signal: return view.animate_effect_resolve(), "resolve")
 		anim_queue.enqueue_callback(func(): view.set_glow(CardView.GlowState.NONE), "clear_glow")
+func _setup_deck_top_display() -> void:
+	# Create card views for deck tops
+	for player in players:
+		var deck_zone := zone_manager.deck_of(player)
+		var top_card := deck_zone.peek_top()
+		
+		if top_card:
+			var view := get_or_create_card_view(top_card)
+			view.flip_to(false)  # Face down
+			view.kill_all_tweens()
+			view.scale = Vector2(1.0, 1.0)
+			view.rotation = 0.0
+			
+			# Position on the deck pile
+			var deck_view := _pile_views.get("%s_deck" % ["p%d" % player.player_id], null)
+			if deck_view:
+				# If not already added, add to appropriate layer
+				if view.get_parent() != self:
+					add_child(view)
+				var pos :Vector2= deck_view.get_parent().global_position + Vector2(deck_view.size.x / 2, deck_view.size.y / 2)
+				view.global_position = pos - Vector2(CardView.CARD_W , CardView.CARD_H) - global_position
+				view.z_index = 2  # Above the deck pile
+				print("dv:",view.position, position,global_position)
+				
+				
+				_deck_top_views[player] = view
+		else:
+			_deck_top_views[player] = null
+# ─── Update deck top display when deck changes ─────────────────────────────
+
+func _update_deck_top_display(player: Player) -> void:
+	var deck_zone := zone_manager.deck_of(player)
+	var top_card := deck_zone.peek_top()
+	
+	# Remove old top view
+	if _deck_top_views.has(player) and _deck_top_views[player]:
+		var old_view = _deck_top_views[player]
+		if is_instance_valid(old_view):
+			old_view.queue_free()
+		_deck_top_views.erase(player)
+	
+	if top_card:
+		var view := get_or_create_card_view(top_card)
+		view.flip_to(false)  # Face down
+		#view.kill_all_tweens()
+		view.scale = Vector2(1.0, 1.0)
+		view.rotation = 0.0
+		view.modulate = Color.WHITE
+		
+		# Position on the deck pile
+		var deck_view := _pile_views.get("%s_deck" % ["p%d" % player.player_id], null)
+		if deck_view:
+			view.position = Vector2.ZERO
+			var pos :Vector2= deck_view.get_parent().global_position + Vector2(deck_view.size.x / 2, deck_view.size.y / 2)
+			view.global_position = pos - Vector2(CardView.CARD_W , CardView.CARD_H) - global_position
+			view.z_index = 2
+			print("dv:",view.position, position,global_position)
+			if view.get_parent() != self:
+				add_child(view)
+			
+			_deck_top_views[player] = view
+	else:
+		_deck_top_views[player] = null
+
 
 func _on_chain_resolved(_links: Array) -> void:
 	update_chain_hud([])

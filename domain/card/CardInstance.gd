@@ -11,7 +11,7 @@ extends RefCounted
 signal stat_changed(card: CardInstance, stat: StringName, old_value: int, new_value: int)
 
 ## Emitted when this card moves to a new zone (handled by ZoneManager, but re-emitted here)
-signal zone_changed(card: CardInstance, from_zone: Zone, to_zone: Zone)
+#signal zone_changed(card: CardInstance, from_zone: Zone, to_zone: Zone)
 
 ## Emitted when a counter is added or removed
 signal counter_changed(card: CardInstance, counter_name: StringName, old_count: int, new_count: int)
@@ -130,7 +130,7 @@ func get_def() -> int:
 func get_level() -> int:
 	return _compute_stat(&"level", definition.level, _level_modifiers)
 
-func _compute_stat(stat_name: StringName, base: int, modifiers: Array[StatModifier]) -> int:
+func _compute_stat(_stat_name: StringName, base: int, modifiers: Array[StatModifier]) -> int:
 	var result := base
 	# Apply additive modifiers first
 	for mod in modifiers:
@@ -338,5 +338,5 @@ func _to_string() -> String:
 	return "CardInstance(id=%d, name=%s, zone=%s)" % [
 		instance_id,
 		definition.card_name,
-		current_zone.zone_id if current_zone else "none"
+		current_zone.zone_id as String if current_zone else "none"
 	]
