@@ -439,9 +439,7 @@ func can_interrupt_with(priority: AnimPriority) -> bool:
 
 func set_priority(priority: AnimPriority) -> void:
 	_current_priority = priority
-	if priority >= AnimPriority.MOVE:
-		# Kill hover when we start a high-priority animation
-		_kill_hover_tween()
+
 
 func _kill_hover_tween() -> void:
 	if _hover_tween and _hover_tween.is_valid():
@@ -453,8 +451,8 @@ func _kill_hover_tween() -> void:
 ## Animate this card moving to a new global position.
 ## Called by BoardView after it repositions the card's parent container.
 func animate_move_to(target_global: Vector2,target_rotation:=0,target_scale:=Vector2.ONE) -> Signal:
-	set_priority(AnimPriority.HOVER)
-	#_kill_hover_tween()
+	set_priority(AnimPriority.MOVE)
+	_kill_hover_tween()
 	var tw    := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
 	tw.set_trans(Tween.TRANS_QUINT)
@@ -579,7 +577,7 @@ func animate_effect_activate() -> Signal:
 	set_priority(AnimPriority.EFFECT)
 	var original_state := glow_state
 	set_glow(GlowState.CHAIN_LINK)
-
+	_kill_hover_tween()
 	var tw := create_tween()
 	tw.set_parallel(true)
 	tw.tween_property(self, "scale", Vector2(1.15, 1.15), 0.12) \

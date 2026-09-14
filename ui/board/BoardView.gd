@@ -291,7 +291,6 @@ func _on_card_drawn(player: Player, card: CardInstance) -> void:
 	_draw_animation_layer.add_child(draw_anim)
 	draw_anim.play_draw_animation(card, start_pos, end_pos, 0.35, player != players[0])
 	draw_anim.animation_completed.connect(_on_draw_animation_complete.bind(player))
-	
 	# Remove old deck top view (will be updated after animation)
 	if _deck_top_views.has(player) and _deck_top_views[player]:
 		var old_view = _deck_top_views[player]

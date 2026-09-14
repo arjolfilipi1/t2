@@ -128,7 +128,6 @@ func _ease_in_out(t: float) -> float:
 
 func _on_draw_complete() -> void:
 	_is_animating = false
-	
 	# Clean up trail particles
 	for particle in _trail_particles:
 		if is_instance_valid(particle):

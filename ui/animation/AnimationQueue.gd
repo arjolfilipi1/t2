@@ -119,13 +119,40 @@ func _process_next() -> void:
 	else:
 		var signals: Array[Signal] = []
 		for p in producers:
-			var s = p.call()
-			await s  # Wait NOW, not later
-			
+			signals.append(p.call())
+			#var s = p.call()
+			#await s  # Wait NOW, not later
+		await _wait_for_all(signals)
+
 	
 	item_finished.emit(label)
 	_process_next()
+## Internal helper to await an array of signals in parallel
+func _wait_for_all(signals: Array) -> Signal:
+	var valid_signals = signals.filter(func(s): return typeof(s) == TYPE_SIGNAL)
+	
+	# 1. Create a dummy node to act as a anchor & signal host
+	var tracker := Node.new()
+	tracker.add_user_signal("completed")
+	get_tree().current_scene.add_child(tracker)
+	
+	var remaining := valid_signals.size()
+	
+	# 2. If empty, clean up next frame and return
+	if remaining == 0:
+		tracker.queue_free()
+		return tracker.get_signal("completed")
 
+	# 3. Connect signals to decrement the counter
+	for sig in valid_signals:
+		sig.connect(func():
+			remaining -= 1
+			if remaining <= 0:
+				tracker.emit_signal("completed")
+				tracker.queue_free() # Safely removes the tracker from memory
+		, CONNECT_ONE_SHOT)
+		
+	return Signal(tracker, "completed")
 ## Returns an already-fired signal for synchronous callbacks (enqueue_callback).
 ## A freshly created SignalHelper node emits immediately on the next frame,
 ## which `await` can still correctly wait on.
